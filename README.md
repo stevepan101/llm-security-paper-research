@@ -39,6 +39,8 @@
 | 18 | [Chasing Shadows](security-for-ai/18-chasing-shadows-llm-security-pitfalls.md) | NDSS 2026 | LLM 安全研究的 9 类方法学陷阱，72 篇论文全部中招 |
 | 19 | [CaMeL](security-for-ai/19-camel-defeating-prompt-injections.md) | Google DeepMind，2025-03 | 用系统安全设计（能力标签、数据流控制）防御提示注入，具备可证明的安全性 |
 | 20 | [Constitutional Classifiers](security-for-ai/20-constitutional-classifiers.md) | Anthropic，2025-02 / 2026-01 | 经过数千小时红队检验的通用越狱防御；新一代开销约 1% |
+| 21 | [ADAS：智能体系统自动设计](security-for-ai/21-adas-automated-design-of-agentic-systems.md) | ICLR 2025 | 元智能体用代码自动设计智能体；是 AgenticRed 的方法基础 |
+| 22 | [AgenticRed](security-for-ai/22-agenticred-evolving-red-teaming-systems.md) | arXiv 预印本，2026-01 | 用 GPT-5 演化整套越狱攻击系统；HarmBench ASR 96–100%，迁移到 GPT-5.1 达 100% |
 
 ---
 
