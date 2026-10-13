@@ -69,6 +69,12 @@
 2. **AI 挖洞**：[03](ai-for-security/03-google-big-sleep.md) → [02](ai-for-security/02-darpa-aixcc-final.md) → [04](ai-for-security/04-claude-opus-4-6-500-zero-days.md) → [01](ai-for-security/01-project-glasswing-claude-mythos.md)（按时间顺序看能力演进）
 3. **做研究前必读**：[18](security-for-ai/18-chasing-shadows-llm-security-pitfalls.md)
 
+## 五、专题分析
+
+| # | 专题 | 核心看点 |
+|---|---|---|
+| P1 | [LLM 安全能否进入“工业化早期”？](perspectives/01-llm-security-industrialization.md) | 借用“逆向工程的工业革命”的框架评估越狱攻击、智能体攻击、护栏防御三个方向：智能体攻击测试已进入工业化早期；越狱攻击的生成已自动化，但判定是否有害的评判器还不可靠；防御中能工业化的是补丁流水线和系统级强制。文中列出需要推进的 8 项能力和若干选题 |
+
 ## 说明
 
 - IEEE S&P 2025/2026 的官方获奖页面在调研时无法访问，因此未纳入其获奖论文，留待后续补充。
