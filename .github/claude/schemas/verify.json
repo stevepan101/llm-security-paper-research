@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "summary", "criteria", "regressions", "suggestions"],
+  "properties": {
+    "verdict": { "type": "string", "enum": ["pass", "fail", "needs_human"] },
+    "summary": { "type": "string" },
+    "criteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["criterion", "status", "evidence"],
+        "properties": {
+          "criterion": { "type": "string" },
+          "status": { "type": "string", "enum": ["met", "partial", "unmet"] },
+          "evidence": { "type": "string" }
+        }
+      }
+    },
+    "regressions": { "type": "array", "items": { "type": "string" } },
+    "suggestions": { "type": "array", "items": { "type": "string" } }
+  }
+}

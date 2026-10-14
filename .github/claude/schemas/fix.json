@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "changes", "criteria", "notes_for_reviewer", "cannot_fix", "cannot_fix_reason"],
+  "properties": {
+    "summary": { "type": "string" },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "description"],
+        "properties": {
+          "file": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "criteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["criterion", "addressed", "note"],
+        "properties": {
+          "criterion": { "type": "string" },
+          "addressed": { "type": "boolean" },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "notes_for_reviewer": { "type": "string" },
+    "cannot_fix": { "type": "boolean" },
+    "cannot_fix_reason": { "type": "string" }
+  }
+}

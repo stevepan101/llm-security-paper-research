@@ -1,0 +1,93 @@
+# 闭环第 3 步：由一个独立的 Claude 会话逐条核对 issue 的验收标准，判断 PR 是否真正解决了问题。
+# 通过：打上 claude-verified 标签，等待人工合并；未通过：把建议写成评论，并触发下一轮修复；
+# 超过轮次上限或需要人工取舍：打上 needs-human 标签。
+name: "Claude 闭环 · 3 验证"
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "要验证的 PR 编号"
+        required: true
+      round:
+        description: "当前是第几轮修复"
+        required: false
+        default: "1"
+
+permissions:
+  contents: write # 仅在开启自动合并时用到
+  issues: write
+  pull-requests: write
+  actions: write # 用 workflow_dispatch 触发下一轮修复
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    concurrency:
+      group: claude-verify-${{ inputs.pr }}
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR: ${{ inputs.pr }}
+      ROUND: ${{ inputs.round || '1' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: 检出 PR 并准备上下文（issue、diff、确定性检查）
+        id: ctx
+        run: python3 .github/scripts/claude_loop.py verify-context
+
+      - name: Claude 独立验证
+        id: claude
+        if: steps.ctx.outputs.skip != 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ github.token }}
+          allowed_bots: github-actions
+          prompt: |
+            你是独立的验证者，负责判断 PR #${{ env.PR }} 是否真正解决了 issue #${{ steps.ctx.outputs.issue }}（第 ${{ env.ROUND }} 轮）。
+            你没有参与修复。不要采信 PR 描述或修复说明中的自述，只依据实际改动和原始资料做判断。
+
+            材料：
+            - CLAUDE.md、.github/claude/review-goals.md：仓库约定和质量标准
+            - .claude-loop/issue.md：问题描述和验收标准
+            - .claude-loop/pr.diff：PR 相对主干的完整改动。当前工作区就是 PR 分支，可以读取改动后的完整文件
+            - .claude-loop/link-check.txt：确定性检查结果
+            - .claude-loop/prev-feedback.md（如果存在）：上一轮的验证意见，需要确认这些意见是否都已处理
+
+            判断方法：
+            1. 逐条核对验收标准，给出 met、partial 或 unmet，并附上证据（文件和行号、原文 URL 和原文表述）。涉及事实的修改，用 WebFetch 核对原文。
+            2. 检查改动是否引入了新问题，例如事实错误、链接失效、结构破坏或无关改动，列入 regressions。
+            3. 给出判定：
+               - 所有验收标准都是 met，且没有 regressions：pass
+               - 否则：fail，并在 suggestions 中给出具体、可执行的修改建议，写明文件、位置和应该改成什么
+               - issue 本身有误，或者需要人工取舍：needs_human
+            4. 不要修改任何文件。
+
+            最后按给定的 JSON schema 输出结果。
+          claude_args: >-
+            --model ${{ vars.CLAUDE_MODEL || 'opus' }}
+            --max-turns 40
+            --allowedTools "Read,Glob,Grep,WebFetch,WebSearch"
+            --disallowedTools "Bash,Edit,Write"
+            --json-schema '${{ steps.ctx.outputs.schema }}'
+
+      - name: 发布验证结论，决定下一步
+        if: steps.ctx.outputs.skip != 'true'
+        env:
+          RESULT: ${{ steps.claude.outputs.structured_output }}
+          ISSUE: ${{ steps.ctx.outputs.issue }}
+          LINKS_OK: ${{ steps.ctx.outputs.links_ok }}
+          MAX_ROUNDS: ${{ vars.CLAUDE_MAX_ROUNDS || '3' }}
+          AUTO_MERGE_SEVERITIES: ${{ vars.CLAUDE_AUTO_MERGE_SEVERITIES || 'none' }}
+        run: python3 .github/scripts/claude_loop.py verify-route
+
+      - name: 运行失败时转人工
+        if: failure()
+        env:
+          ISSUE: ${{ steps.ctx.outputs.issue }}
+        run: python3 .github/scripts/claude_loop.py escalate --issue "$ISSUE" --pr "$PR" --reason "第 $ROUND 轮验证工作流运行失败"

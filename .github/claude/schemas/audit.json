@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "findings"],
+  "properties": {
+    "summary": { "type": "string" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "goal", "severity", "files", "problem", "evidence", "suggestion", "acceptance_criteria", "auto_fixable", "fingerprint"],
+        "properties": {
+          "title": { "type": "string" },
+          "goal": { "type": "string" },
+          "severity": { "type": "string", "enum": ["high", "medium", "low"] },
+          "files": { "type": "array", "items": { "type": "string" } },
+          "problem": { "type": "string" },
+          "evidence": { "type": "string" },
+          "suggestion": { "type": "string" },
+          "acceptance_criteria": { "type": "array", "items": { "type": "string" } },
+          "auto_fixable": { "type": "boolean" },
+          "fingerprint": { "type": "string" }
+        }
+      }
+    }
+  }
+}
