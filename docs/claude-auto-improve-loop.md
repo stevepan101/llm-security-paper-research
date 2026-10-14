@@ -135,18 +135,27 @@ GitHub 有一条防递归规则：用 `GITHUB_TOKEN` 产生的事件（建 issue
 
 **成本**
 
-可以调节的项包括：审查频率（cron）、每次和积压的 issue 上限、`CLAUDE_MODEL`（默认 `opus`，可改为 `sonnet` 以降低成本），以及各工作流中的 `--max-turns`。
+可以调节的项包括：审查频率（cron）、每次和积压的 issue 上限、`CLAUDE_MODEL`（默认 `opus`，可改为 `sonnet` 以降低用量），以及各工作流中的 `--max-turns`。
+
+使用 Claude 订阅时，闭环与你日常使用 Claude 共用同一份用量额度。如果某次运行因额度或速率限制失败，相关 issue 或 PR 会被标记为 `needs-human`，额度恢复后手动重新运行即可。额度紧张时，可以降低审查频率、调低 issue 上限，或者把 `CLAUDE_MODEL` 设为 `sonnet`。
 
 ## 6. 启用步骤
 
-1. **把这些文件合并到默认分支。** 定时触发和 `workflow_dispatch` 只认默认分支上的工作流文件。
-2. **配置凭据。** 在 Settings → Secrets and variables → Actions 中添加 `ANTHROPIC_API_KEY`。如果想改用 Claude 订阅，在本地运行 `claude setup-token` 生成 token，存为 `CLAUDE_CODE_OAUTH_TOKEN`，再把四个工作流中的 `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}` 改为 `claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}`。
+1. **把这些文件合并到默认分支。** 定时触发和 `workflow_dispatch` 只认默认分支上的工作流文件；闭环创建的 PR 也以默认分支为目标。
+2. **配置凭据。** 工作流默认使用 Claude 订阅（Pro 或 Max）认证：
+   1. 在本地安装 Claude Code，并用订阅账号登录；
+   2. 在终端运行 `claude setup-token`，在浏览器中完成授权后，终端会输出一个长期有效的 token；
+   3. 在仓库的 Settings → Secrets and variables → Actions 中点击 New repository secret，名称填 `CLAUDE_CODE_OAUTH_TOKEN`，值填刚才的 token。也可以用 GitHub CLI 设置：`gh secret set CLAUDE_CODE_OAUTH_TOKEN --repo <owner>/<repo>`，命令会提示你粘贴，token 不会留在 shell 历史中。
+
+   token 等同于你的账号凭据，不要提交到仓库，也不要粘贴到 issue 或聊天中。如果日志中出现认证错误（例如 token 过期或被撤销），重新运行 `claude setup-token` 并更新这个 secret 即可。
+
+   如果改用 API key：添加 secret `ANTHROPIC_API_KEY`，并把四个工作流中的 `claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}` 改为 `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}`。
 3. **允许 Actions 创建 PR。** 在 Settings → Actions → General → Workflow permissions 中勾选 “Allow GitHub Actions to create and approve pull requests”。
 4. **（可选）设置变量。** 在 Settings → Secrets and variables → Actions → Variables 中设置：
 
    | 变量 | 默认值 | 说明 |
    |---|---|---|
-   | `CLAUDE_MODEL` | `opus` | 各阶段使用的模型 |
+   | `CLAUDE_MODEL` | `opus` | 各阶段使用的模型。如果你的套餐在 Claude Code 中不能使用 Opus，设为 `sonnet` |
    | `CLAUDE_AUTO_FIX` | `true` | 审查后是否自动分派修复 |
    | `CLAUDE_AUTO_FIX_SEVERITIES` | `low,medium` | 哪些严重程度可以自动修复；`high` 默认需要人工加标签 |
    | `CLAUDE_MAX_ROUNDS` | `3` | 每个 issue 的最大修复轮次 |

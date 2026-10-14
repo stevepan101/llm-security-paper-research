@@ -41,7 +41,7 @@ jobs:
         if: steps.ctx.outputs.budget != '0'
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} # Claude 订阅（Pro/Max），由 claude setup-token 生成
           github_token: ${{ github.token }}
           prompt: |
             你是本仓库的自动审查员。先完整阅读 CLAUDE.md（仓库约定）和 .github/claude/review-goals.md（审查目标与评判标准），再开始审查。

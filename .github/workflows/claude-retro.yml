@@ -41,7 +41,7 @@ jobs:
         if: steps.ctx.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} # Claude 订阅（Pro/Max），由 claude setup-token 生成
           github_token: ${{ github.token }}
           prompt: |
             你负责复盘最近 ${{ env.RETRO_DAYS }} 天自动改进闭环的效果，并据此改进审查标准。
