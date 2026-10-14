@@ -1,0 +1,75 @@
+# 闭环第 1 步：按 .github/claude/review-goals.md 审查仓库，把发现的问题写成 issue，
+# 并把可以自动修复的问题交给 claude-fix.yml。设计说明见 docs/claude-auto-improve-loop.md。
+name: "Claude 闭环 · 1 审查"
+
+on:
+  schedule:
+    - cron: "17 1 * * 1" # 每周一 01:17 UTC
+  workflow_dispatch:
+    inputs:
+      focus:
+        description: "本次审查重点（留空则按 review-goals.md 全量审查）"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  issues: write
+  actions: write # 用 workflow_dispatch 触发修复
+
+concurrency:
+  group: claude-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MAX_NEW: ${{ vars.CLAUDE_MAX_ISSUES_PER_RUN || '5' }}
+      MAX_OPEN: ${{ vars.CLAUDE_MAX_OPEN_ISSUES || '10' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: 准备上下文（已有 issue、确定性检查、本次额度）
+        id: ctx
+        run: python3 .github/scripts/claude_loop.py audit-context
+
+      - name: Claude 审查
+        id: claude
+        if: steps.ctx.outputs.budget != '0'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} # Claude 订阅（Pro/Max），由 claude setup-token 生成
+          github_token: ${{ github.token }}
+          prompt: |
+            你是本仓库的自动审查员。先完整阅读 CLAUDE.md（仓库约定）和 .github/claude/review-goals.md（审查目标与评判标准），再开始审查。
+
+            任务：按 review-goals.md 审查仓库内容，找出最值得修复的问题。
+            - 本次最多报告 ${{ steps.ctx.outputs.budget }} 个问题。按严重程度和修复收益排序，宁缺毋滥。
+            - 本次审查重点：${{ inputs.focus || '无特别重点，按 review-goals.md 全量审查' }}
+            - .claude-loop/known-issues.json 列出了已有的审查 issue。与其中任何一个实质相同的问题都不要再报告；stateReason 为 NOT_PLANNED 的是人工判定的误报，同类问题也不要报告。
+            - .claude-loop/link-check.txt 是确定性链接检查的结果，可以直接作为证据。
+            - 涉及事实（数字、作者、会议、奖项）时，用 WebFetch 打开原文核对，并在 evidence 中写明原文 URL 和原文表述。无法核实的，不要报告为事实错误。
+            - acceptance_criteria 的每一条都必须能被客观判定真假（写法见 review-goals.md），验证阶段会逐条核对。
+            - auto_fixable 按 review-goals.md 的定义判断。
+            - fingerprint 使用“文件路径:目标编号:简短英文标识”的格式，例如 README.md:G4:paper-count。同一个问题在不同运行中应得到相同的 fingerprint。
+            - 只做审查，不要修改任何文件。
+
+            最后按给定的 JSON schema 输出结果。
+          claude_args: >-
+            --model ${{ vars.CLAUDE_MODEL || 'opus' }}
+            --max-turns 80
+            --allowedTools "Read,Glob,Grep,WebFetch,WebSearch"
+            --disallowedTools "Bash,Edit,Write"
+            --json-schema '${{ steps.ctx.outputs.schema }}'
+
+      - name: 创建 issue，并分派自动修复
+        if: steps.ctx.outputs.budget != '0'
+        env:
+          RESULT: ${{ steps.claude.outputs.structured_output }}
+          BUDGET: ${{ steps.ctx.outputs.budget }}
+          AUTO_FIX: ${{ vars.CLAUDE_AUTO_FIX || 'true' }}
+          AUTO_FIX_SEVERITIES: ${{ vars.CLAUDE_AUTO_FIX_SEVERITIES || 'low,medium' }}
+        run: python3 .github/scripts/claude_loop.py create-issues

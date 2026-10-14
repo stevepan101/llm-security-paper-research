@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "changes_made", "observations"],
+  "properties": {
+    "summary": { "type": "string" },
+    "changes_made": { "type": "array", "items": { "type": "string" } },
+    "observations": { "type": "array", "items": { "type": "string" } }
+  }
+}
