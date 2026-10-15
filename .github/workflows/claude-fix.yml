@@ -57,6 +57,7 @@ jobs:
             1. 先阅读 CLAUDE.md（仓库约定）和 .github/claude/review-goals.md（质量标准），再阅读 .claude-loop/issue.md（问题描述、证据和验收标准）。
             2. 如果存在 .claude-loop/feedback.md，说明上一轮修复没有通过独立验证：feedback.md 是验证意见，.claude-loop/current.diff 是当前分支已有的改动。请在已有改动的基础上，逐条处理验证意见。
             3. 直接编辑文件完成修复。改动只限于解决这个 issue 所需的内容，不要做无关的重写。
+            4. 如果 issue 要求新增论文精读（标签为 claude-collect），按 review-goals.md 的“G7 持续收录”撰写：先用 WebFetch 通读原文再动笔，编号取主干上现有的最大编号加 1，并同步更新 README。
 
             约束：
             - 只能修改仓库中的 .md 内容文件，不要修改 .github/ 下的任何文件；不要执行 git 操作，提交和 PR 由工作流完成。
@@ -67,7 +68,7 @@ jobs:
             最后按给定的 JSON schema 输出：本轮改动摘要，以及每条验收标准的处理情况。
           claude_args: >-
             --model ${{ vars.CLAUDE_MODEL || 'opus' }}
-            --max-turns 40
+            --max-turns 60
             --allowedTools "Read,Glob,Grep,Edit,Write,WebFetch,WebSearch"
             --disallowedTools "Bash"
             --json-schema '${{ steps.ctx.outputs.schema }}'

@@ -1,11 +1,12 @@
 # Claude 自动改进闭环：审查 → Issue → 修复 → 验证
 
-本文说明如何借助 Claude 与 GitHub 的协作能力，让仓库持续地自动变好。闭环分四步：
+本文说明如何借助 Claude 与 GitHub 的协作能力，让仓库持续地自动变好。闭环有两个入口和三个后续步骤：
 
-1. 按目标审查仓库，把发现的缺陷写成 issue；
-2. Claude Code 针对 issue 自动提交 PR；
-3. 由另一个独立的 Claude 会话验证 PR 是否真正解决了 issue，没解决就给出具体建议，进入下一轮修复；
-4. 每月复盘一次，用误报和失败案例改进审查标准本身。
+1. **审查**：按目标审查已有内容，把发现的缺陷写成 issue；
+2. **收集**：定期在四大安全会议上搜索新发表的 LLM 安全论文，把值得收录的写成 issue；
+3. Claude Code 针对 issue 自动提交 PR（修复缺陷，或撰写新论文的精读）；
+4. 由另一个独立的 Claude 会话验证 PR 是否真正解决了 issue，没解决就给出具体建议，进入下一轮修复；
+5. 每月复盘一次，用误报、被否决的候选和失败案例改进审查与收录标准本身。
 
 所有实现都在本仓库中，基于 GitHub Actions 和 [anthropics/claude-code-action](https://github.com/anthropics/claude-code-action)，不依赖外部服务或数据库。
 
@@ -15,9 +16,12 @@
 
 ```mermaid
 flowchart TD
-    G[".github/claude/review-goals.md<br/>审查目标与评判标准"] -.-> A
-    A["① 审查 claude-audit<br/>每周定时 / 手动"] -->|结构化 JSON| S1["脚本：去重、限额、建 issue"]
+    G[".github/claude/review-goals.md<br/>审查目标与收录标准"] -.-> A
+    G -.-> C
+    A["① 审查 claude-audit<br/>每周一 / 手动"] -->|结构化 JSON| S1["脚本：去重、限额、建 issue"]
+    C["⑤ 收集新论文 claude-collect<br/>每周四 / 手动"] -->|结构化 JSON| S2["脚本：去重、限额、建候选 issue<br/>A 层排队，一次写一篇"]
     S1 --> I["Issue<br/>问题 + 证据 + 验收标准"]
+    S2 --> I
     I -->|可自动修复，且严重程度在允许范围内| F
     I -->|人工加 claude-fix 标签| F
     I -->|人工关闭为 not planned，即误报| R
@@ -36,25 +40,26 @@ flowchart TD
 - **内环**以单个 issue 为单位，在修复和验证之间往返，最多 `CLAUDE_MAX_ROUNDS` 轮（默认 3 轮）。它负责把一个具体问题改对。
 - **外环**以审查标准为单位：统计误报、多轮未通过和转人工的案例，修改 `review-goals.md`。它负责让审查本身越来越准，这是“持续提升”的关键。只有内环的话，系统会不断重复同样的误报。
 
-## 2. 四个阶段
+## 2. 五个阶段
 
 | 阶段 | 工作流 | 触发方式 | Claude 读取 | Claude 输出 | 脚本负责 |
 |---|---|---|---|---|---|
 | ① 审查 | `claude-audit.yml` | 每周一定时；手动运行时可指定审查重点 | 审查标准、全部内容、已有 issue 列表、确定性检查结果、原文网页 | 问题列表（JSON），每个问题附带证据、验收标准、是否可自动修复和指纹 | 指纹去重、额度控制、建 issue、分派自动修复 |
 | ② 修复 | `claude-fix.yml` | 审查或验证阶段分派；人工给 issue 加上 `claude-fix` 标签 | issue；第 2 轮起还会读取上一轮的验证意见和当前 diff | 修改文件，并输出修复说明（JSON） | 检查改动范围、提交、推送、创建或更新 PR、触发验证 |
 | ③ 验证 | `claude-verify.yml` | 修复阶段分派；也可以手动运行 | issue 的验收标准、PR diff、改动后的文件、上一轮意见、原文网页 | 判定 pass / fail / needs_human，逐条给出证据，列出新引入的问题和修改建议（JSON） | 用确定性检查否决错误的“通过”、发评论、打标签、触发下一轮或转人工、可选自动合并 |
-| ④ 复盘 | `claude-retro.yml` | 每月 1 日；手动 | 统计数据、误报案例及人工留下的理由、多轮验证记录 | 修改 `review-goals.md`，并输出总结（JSON） | 限定只能改这一个文件，开 PR 交给人工审阅 |
+| ④ 复盘 | `claude-retro.yml` | 每月 1 日；手动 | 统计数据、误报和被否决的候选及人工留下的理由、多轮验证记录 | 修改 `review-goals.md`，并输出总结（JSON） | 限定只能改这一个文件，开 PR 交给人工审阅 |
+| ⑤ 收集 | `claude-collect.yml` | 每周四定时；手动运行时可指定搜索重点；论文 PR 被人工合并或关闭时分派下一篇 | 收录标准（G7）、已收录论文、已有候选、四大安全会议官方页面和原文 | 候选论文列表（JSON），每篇附带层级、官方核实证据、验收标准，以及本次检查过的来源清单 | 指纹去重、额度控制、建候选 issue、按顺序一次分派一篇撰写 |
 
 文件清单：
 
 | 文件 | 作用 |
 |---|---|
-| `.github/claude/review-goals.md` | **目标函数**。审查、修复、验证都以它为准；想改变审查方向，只需改这里 |
+| `.github/claude/review-goals.md` | **目标函数**。审查、收集、修复、验证都以它为准；想改变审查或收录方向，只需改这里（收录标准在“G7 持续收录”一节） |
 | `CLAUDE.md` | 仓库约定。Claude Code 每次运行都会自动读取 |
 | `.github/claude/schemas/*.json` | 各阶段输出的 JSON schema，通过 `--json-schema` 强制 Claude 按格式输出 |
 | `.github/scripts/claude_loop.py` | 胶水脚本，负责所有 GitHub 写操作和状态流转 |
-| `.github/scripts/check_links.py` | 确定性检查：相对链接是否有效、README 是否索引了每篇文章 |
-| `.github/workflows/claude-*.yml` | 四个阶段的工作流 |
+| `.github/scripts/check_links.py` | 确定性检查：相对链接是否有效、README 是否索引了每篇文章、文章编号是否连续 |
+| `.github/workflows/claude-*.yml` | 五个阶段的工作流 |
 
 ## 3. 关键设计决策
 
@@ -64,7 +69,7 @@ flowchart TD
 
 `review-goals.md` 同时定义了审查目标（G1–G6）、严重程度、“可自动修复”的边界和“不要报告”的情形，三个阶段共享这一份标准。
 
-> 举例：当前 README 开头写的是收录“20 项”研究，但两张索引表实际有 22 篇。这正是 G4（内部一致）要抓的问题，可以用来检验第一次运行的效果。
+> 举例：第一次运行时，审查发现 README 开头写的是收录“20 项”研究，而两张索引表实际有 22 篇（G4，内部一致）。闭环自动创建了 issue、提交了修复，验证通过后合并，全程约 3 分钟。
 
 ### 3.2 Claude 只产出结构化结果，GitHub 写操作全部由脚本完成
 
@@ -98,6 +103,16 @@ GitHub 有一条防递归规则：用 `GITHUB_TOKEN` 产生的事件（建 issue
 
 没有外部数据库，状态全部保存在 GitHub 上。标签表示状态；issue、PR 和评论正文中的隐藏 HTML 注释保存元数据，例如 `<!-- claude-loop:audit fingerprint=… -->`、`<!-- claude-loop:verify round=2 verdict=fail -->`。脚本只信任 `github-actions` 自己发出的标记评论，忽略他人伪造的同名标记。
 
+### 3.8 持续收集新论文：只在官方页面核实，一次只写一篇
+
+收集阶段是闭环的第二个入口，把“仓库跟上最新研究”也变成可验证的 issue：
+
+- **标准写在 G7 里**：现阶段只搜索四大安全会议（IEEE S&P、USENIX Security、ACM CCS、NDSS），范围、来源和层级都在 `review-goals.md` 的“G7 持续收录”一节；要扩大范围，只需改这一节。审查阶段不再报告“缺少某篇论文”，避免两个入口重复。
+- **录用和获奖必须在官方页面核实**：博客和新闻只能当线索。每次运行还会输出检查过的来源清单（已检查 / 无法访问 / 尚未公布），写在运行摘要里。像 S&P 官方页面无法访问这类覆盖缺口，可以从摘要里直接看到。
+- **分层放权**：A 层（获奖论文）符合 README 现有的筛选标准，默认自动排队撰写；B 层（录用且有影响力证据）是编辑判断，需要人工加标签。
+- **一次只写一篇**：新文章的编号取“现有最大编号 + 1”，并行撰写会撞号，所以候选论文排成队列，按 issue 编号依次分派。前一篇的 PR 合并、关闭或转人工后，才分派下一篇。触发分派的时机有三个：每周的收集运行、自动合并之后，以及人工合并或关闭论文 PR 时。被人工关闭了 PR 的候选不会被自动重写。
+- **通用验收标准由脚本补齐**：每个候选 issue 都会自动附上新文件位置、编号连续、核心小节、数字可溯源、README 索引和计数一致这几条标准。`check_links.py` 也会检查文章编号是否连续且不重复，作为验证阶段的否决条件。
+
 ## 4. 状态与标签
 
 | 标签 | 加在 | 含义 |
@@ -109,6 +124,8 @@ GitHub 有一条防递归规则：用 `GITHUB_TOKEN` 产生的事件（建 issue
 | `claude-verified` | PR | 通过独立验证，等待人工合并 |
 | `needs-human` | issue / PR | 超过轮次上限、Claude 判断需要人工取舍、改动超出允许范围，或工作流运行失败 |
 | `claude-retro` | PR | 复盘阶段对审查标准的修改 |
+| `claude-collect` | issue / PR | 收集阶段发现的候选论文，以及为它撰写精读的 PR |
+| `tier:A` / `tier:B` | issue | 候选论文的层级：A 为四大安全会议获奖论文，B 为录用且有影响力证据的论文 |
 
 标签会在首次运行时自动创建。
 
@@ -126,7 +143,7 @@ GitHub 有一条防递归规则：用 `GITHUB_TOKEN` 产生的事件（建 issue
 - 工具白名单：审查和验证阶段只能读文件和查网页；修复阶段可以改文件；所有阶段都禁用 Bash；
 - 路径白名单：修复阶段只能改 Markdown 内容文件，改动 `.github/`、`.claude/` 或 `CLAUDE.md` 会被拒绝并转人工；复盘阶段只能改 `review-goals.md`；
 - 验证阶段检出 PR 后，会把 `.github/`、`.claude/` 和 `CLAUDE.md` 恢复为主干版本，所以 PR 无法篡改验证方使用的标准；
-- 默认不自动合并：合并始终由人决定。只有设置了 `CLAUDE_AUTO_MERGE_SEVERITIES`（例如 `low`）才会自动合并对应严重程度的修复；
+- 默认不自动合并：合并始终由人决定。只有设置了 `CLAUDE_AUTO_MERGE_SEVERITIES`（例如 `low`）才会自动合并对应严重程度的修复；新论文的精读需要额外加上 `tier:A` 才会自动合并；
 - 只有对仓库有写权限的人能触发人工入口（claude-code-action 会检查）。
 
 **提示注入**
@@ -149,7 +166,7 @@ GitHub 有一条防递归规则：用 `GITHUB_TOKEN` 产生的事件（建 issue
 
    token 等同于你的账号凭据，不要提交到仓库，也不要粘贴到 issue 或聊天中。如果日志中出现认证错误（例如 token 过期或被撤销），重新运行 `claude setup-token` 并更新这个 secret 即可。
 
-   如果改用 API key：添加 secret `ANTHROPIC_API_KEY`，并把四个工作流中的 `claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}` 改为 `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}`。
+   如果改用 API key：添加 secret `ANTHROPIC_API_KEY`，并把五个工作流中的 `claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}` 改为 `anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}`。
 3. **允许 Actions 创建 PR。** 在 Settings → Actions → General → Workflow permissions 中勾选 “Allow GitHub Actions to create and approve pull requests”。
 4. **（可选）设置变量。** 在 Settings → Secrets and variables → Actions → Variables 中设置：
 
@@ -161,7 +178,10 @@ GitHub 有一条防递归规则：用 `GITHUB_TOKEN` 产生的事件（建 issue
    | `CLAUDE_MAX_ROUNDS` | `3` | 每个 issue 的最大修复轮次 |
    | `CLAUDE_MAX_ISSUES_PER_RUN` | `5` | 每次审查最多新建的 issue 数 |
    | `CLAUDE_MAX_OPEN_ISSUES` | `10` | 未关闭的审查 issue 达到这个数量时暂停审查 |
-   | `CLAUDE_AUTO_MERGE_SEVERITIES` | `none` | 验证通过后自动合并的严重程度，例如 `low` |
+   | `CLAUDE_AUTO_MERGE_SEVERITIES` | `none` | 验证通过后自动合并的范围。审查类按严重程度填写，例如 `low,medium`；新论文精读按层级填写，例如 `tier:A`；两类可以写在一起 |
+   | `CLAUDE_AUTO_COLLECT_TIERS` | `A` | 哪些层级的候选论文自动排队撰写；B 层默认需要人工加 `claude-fix` 标签 |
+   | `CLAUDE_MAX_PAPERS_PER_RUN` | `3` | 每次收集最多新建的候选论文 issue 数 |
+   | `CLAUDE_MAX_OPEN_PAPERS` | `8` | 未关闭的候选论文 issue 达到这个数量时暂停收集 |
 
 5. **首次运行。** 在 Actions 页面手动运行 “Claude 闭环 · 1 审查”。
 
@@ -182,6 +202,10 @@ GitHub 有一条防递归规则：用 `GITHUB_TOKEN` 产生的事件（建 issue
 | 处理卡住的问题 | 筛选 `label:needs-human`，评论中写明了原因和运行记录链接 |
 | 重新验证某个 PR | 手动运行验证工作流，填写 PR 编号 |
 | 调整审查方向 | 直接修改 `.github/claude/review-goals.md`，或审阅每月的复盘 PR |
+| 立刻搜索某届会议 | 手动运行收集工作流，在 `focus` 中填写重点，例如“NDSS 2027 录用列表”“补齐 S&P 2025/2026 获奖论文” |
+| 同意收录一篇 B 层候选 | 给 issue 加上 `claude-fix` 标签；如果有别的论文正在撰写，它会自动排队 |
+| 不收录某篇候选 | 把 issue 关闭为 “not planned”，最好留一句理由；之后不会再推荐它，复盘时还会据此调整收录标准 |
+| 调整收录范围（例如加入 ML 顶会） | 修改 `review-goals.md` 的“G7 持续收录”一节 |
 
 ## 8. 推广到代码仓库
 
@@ -204,4 +228,6 @@ GitHub 有一条防递归规则：用 `GITHUB_TOKEN` 产生的事件（建 issue
 - **去重不完美**：指纹由 LLM 生成，跨运行不一定完全一致，所以同时提供已有 issue 列表让 Claude 做语义去重，再用指纹做确定性兜底。偶尔仍可能出现重复，关闭为 not planned 即可。
 - **同源盲区**：修复方和验证方是同一模型家族，可能在同一个问题上一起犯错。确定性检查和人工合并是最后防线，也可以给验证阶段单独换一个模型。
 - **原文不可达**：付费墙或反爬页面会导致 WebFetch 失败。按照审查标准，无法核实的内容不会被报告为事实错误。
+- **会议官方页面可能无法访问**：例如 S&P 的获奖页面曾经无法访问。核实不了获奖的论文不会被判为 A 层；无法访问的来源会记录在每次收集的运行摘要中，可以留待下次重试，或者人工补充。
+- **长文撰写的质量**：新论文精读比修正一个数字难得多。验证阶段会抽查关键事实，但建议在开启 `tier:A` 自动合并之前，先人工审阅几篇。
 - **尚未在真实仓库端到端运行**：胶水脚本已用模拟的 `gh` 和本地 git 远端测试过全部分支（建 issue、去重、多轮修复、通过、否决、轮次上限、转人工、复盘），工作流也通过了 actionlint；但真实调用 Claude 的部分需要在启用后观察第一轮运行。

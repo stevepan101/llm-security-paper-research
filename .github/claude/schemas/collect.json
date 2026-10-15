@@ -1,0 +1,45 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["summary", "searched", "candidates"],
+  "properties": {
+    "summary": { "type": "string" },
+    "searched": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["venue", "source", "status", "note"],
+        "properties": {
+          "venue": { "type": "string" },
+          "source": { "type": "string" },
+          "status": { "type": "string", "enum": ["checked", "unreachable", "not_yet_published"] },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "authors", "venue", "year", "tier", "award", "category", "paper_url", "official_url", "why_include", "evidence", "acceptance_criteria", "fingerprint"],
+        "properties": {
+          "title": { "type": "string" },
+          "authors": { "type": "string" },
+          "venue": { "type": "string" },
+          "year": { "type": "integer" },
+          "tier": { "type": "string", "enum": ["A", "B"] },
+          "award": { "type": "string" },
+          "category": { "type": "string", "enum": ["ai-for-security", "security-for-ai"] },
+          "paper_url": { "type": "string" },
+          "official_url": { "type": "string" },
+          "why_include": { "type": "string" },
+          "evidence": { "type": "string" },
+          "acceptance_criteria": { "type": "array", "items": { "type": "string" } },
+          "fingerprint": { "type": "string" }
+        }
+      }
+    }
+  }
+}
