@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""确定性检查：相对链接是否有效，README 是否索引了全部分析文章。
+"""确定性检查：相对链接是否有效，README 是否索引了全部分析文章，文章编号是否连续。
 
 审查阶段把结果交给 Claude 作为证据；验证阶段如果检查失败，
 即使 Claude 判定“通过”也会被否决。退出码 0 表示通过，1 表示有问题。
@@ -67,11 +67,24 @@ def main() -> int:
                 if article.resolve() not in indexed:
                     problems.append(f"README.md: 没有索引 {article.relative_to(ROOT)}")
 
+    # 文章编号全仓库连续且不重复（新增论文取最大编号 + 1）
+    numbers = {}
+    for directory in CONTENT_DIRS:
+        for article in (ROOT / directory).glob("*.md"):
+            if match := re.match(r"(\d+)-", article.name):
+                numbers.setdefault(int(match.group(1)), []).append(str(article.relative_to(ROOT)))
+    for number, files in sorted(numbers.items()):
+        if len(files) > 1:
+            problems.append(f"文章编号 {number:02d} 重复：{'、'.join(sorted(files))}")
+    missing = sorted(set(range(1, max(numbers, default=0) + 1)) - set(numbers))
+    if missing:
+        problems.append("文章编号不连续，缺少：" + "、".join(f"{n:02d}" for n in missing))
+
     if problems:
         print("\n".join(problems))
         print(f"\n共 {len(problems)} 个问题")
         return 1
-    print("相对链接与 README 索引检查通过")
+    print("相对链接、README 索引与文章编号检查通过")
     return 0
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Claude 自动改进闭环（审查 → issue → 修复 → 验证 → 复盘）的胶水脚本。
+"""Claude 自动改进闭环（审查 / 收集 → issue → 修复 → 验证 → 复盘）的胶水脚本。
 
 分工原则：Claude 只读写仓库文件，并按 JSON schema 返回结构化结果；
 所有 GitHub 写操作都由这里的确定性代码完成，包括建 issue、提交、开 PR、打标签、
@@ -34,6 +34,9 @@ LABELS = {
     "claude-verified": ("2ea44f", "Claude 验证通过，等待人工合并"),
     "needs-human": ("d93f0b", "自动闭环无法解决，需要人工处理"),
     "claude-retro": ("c5def5", "审查标准复盘"),
+    "claude-collect": ("006b75", "Claude 收集的候选论文"),
+    "tier:A": ("0052cc", "四大安全会议获奖论文"),
+    "tier:B": ("bfdadc", "四大安全会议录用、有影响力证据"),
     "severity:high": ("b60205", "严重：事实错误或误导读者"),
     "severity:medium": ("fbca04", "中等：影响准确性或一致性"),
     "severity:low": ("c2e0c6", "轻微：措辞、格式"),
@@ -188,6 +191,10 @@ def open_pr_for(branch: str) -> int | None:
     return prs[0]["number"] if prs else None
 
 
+def has_label(item: dict, name: str) -> bool:
+    return any(l["name"] == name for l in item.get("labels") or [])
+
+
 def is_bot(c: dict) -> bool:
     return ((c.get("author") or {}).get("login") or "").removesuffix("[bot]") == BOT_LOGIN
 
@@ -231,26 +238,41 @@ def escalate(issue, pr, reason: str) -> None:
 
 # ---------- ① 审查 ----------
 
-def cmd_audit_context(_args) -> None:
-    ensure_labels()
-    issues = gh_json("issue", "list", "--label", "claude-audit", "--state", "all", "--limit", "500",
+def known_issues(label: str, kind: str) -> list[dict]:
+    """某类 issue 的精简列表，供 Claude 做语义去重、供脚本做指纹去重。"""
+    issues = gh_json("issue", "list", "--label", label, "--state", "all", "--limit", "500",
                      "--json", "number,title,state,stateReason,body") or []
-    known = [{
+    return [{
         "number": it["number"],
         "title": it["title"],
         "state": it["state"],
         "stateReason": it.get("stateReason") or "",
-        "fingerprint": (parse_marker(it["body"], "audit") or {}).get("fingerprint", ""),
+        "fingerprint": (parse_marker(it["body"], kind) or {}).get("fingerprint", ""),
     } for it in issues]
-    write_ctx("known-issues.json", json.dumps(known, ensure_ascii=False, indent=2))
-    _, report = link_check()
-    write_ctx("link-check.txt", report)
 
+
+def issue_budget(known: list[dict], what: str) -> int:
     open_count = sum(1 for k in known if k["state"] == "OPEN")
     budget = max(0, min(int(env("MAX_NEW", "5")), int(env("MAX_OPEN", "10")) - open_count))
     if budget == 0:
-        step_summary(f"积压的审查 issue 已有 {open_count} 个，达到上限，本次跳过审查。")
-    set_output(budget=budget, schema=schema("audit"))
+        step_summary(f"未关闭的{what} issue 已有 {open_count} 个，达到上限，本次跳过。")
+    return budget
+
+
+def blocked_fingerprints(known: list[dict]) -> set[str]:
+    """与未关闭的 issue 重复，或被人工判定为误报 / 否决（not planned）的，都不再报告。
+    已完成（completed）的允许重新报告：审查视为回归，收集则由 Claude 依据已收录列表排除。"""
+    return {k["fingerprint"] for k in known if k["fingerprint"]
+            and (k["state"] == "OPEN" or k["stateReason"] == "NOT_PLANNED")}
+
+
+def cmd_audit_context(_args) -> None:
+    ensure_labels()
+    known = known_issues("claude-audit", "audit")
+    write_ctx("known-issues.json", json.dumps(known, ensure_ascii=False, indent=2))
+    _, report = link_check()
+    write_ctx("link-check.txt", report)
+    set_output(budget=issue_budget(known, "审查"), schema=schema("audit"))
 
 
 def normalize_fingerprint(fp: str) -> str:
@@ -288,11 +310,7 @@ def cmd_create_issues(_args) -> None:
     budget = int(env("BUDGET"))
     auto_fix = env("AUTO_FIX", "true") == "true"
     auto_severities = {s.strip() for s in env("AUTO_FIX_SEVERITIES", "low,medium").split(",")}
-    known = json.loads((CTX / "known-issues.json").read_text(encoding="utf-8"))
-    # 指纹去重：与未关闭的 issue 重复，或被人工判定为误报（not planned）的，都不再报告。
-    # 修复后再次出现的问题（completed）允许重新报告，视为回归。
-    blocked = {k["fingerprint"] for k in known if k["fingerprint"]
-               and (k["state"] == "OPEN" or k["stateReason"] == "NOT_PLANNED")}
+    blocked = blocked_fingerprints(json.loads((CTX / "known-issues.json").read_text(encoding="utf-8")))
 
     lines = [f"## 审查结果\n\n{result.get('summary', '')}\n"]
     created = 0
@@ -318,12 +336,129 @@ def cmd_create_issues(_args) -> None:
     step_summary("\n".join(lines))
 
 
+# ---------- ⑤ 收集新论文 ----------
+
+PAPER_CRITERIA = [
+    "新文章位于 `{category}/`，文件名为 `NN-英文短名.md`，编号与现有文章连续且不重复",
+    "文章开头有信息表（作者、会议与年份、原文链接），并包含一句话总结、方法、关键结果、局限等核心小节",
+    "文中的关键数字都能在原文中找到；如果只读到部分内容，文中有明确说明",
+    "README 对应的索引表新增了这篇论文，开头写的收录数量等于两张索引表的行数之和",
+]
+
+
+def cmd_collect_context(_args) -> None:
+    ensure_labels()
+    known = known_issues("claude-collect", "collect")
+    write_ctx("known-papers.json", json.dumps(known, ensure_ascii=False, indent=2))
+    rows = [line for line in Path("README.md").read_text(encoding="utf-8").splitlines()
+            if re.match(r"^\|\s*\d+\s*\|", line)]
+    write_ctx("existing-papers.md", "# 仓库已收录的研究（README 索引表）\n\n" + "\n".join(rows) + "\n")
+    set_output(budget=issue_budget(known, "候选论文"), schema=schema("collect"),
+               today=dt.date.today().isoformat())
+
+
+def render_paper_issue(c: dict, fingerprint: str) -> str:
+    award = f"（{c['award']}）" if c["award"] else ""
+    criteria = "\n".join(f"- [ ] {item}" for item in
+                         c["acceptance_criteria"] + [t.format(**c) for t in PAPER_CRITERIA])
+    return f"""{marker('collect', fingerprint=fingerprint)}
+**会议**：{c['venue']} {c['year']}　**层级**：{c['tier']}{award}　**分类**：`{c['category']}`
+
+### 论文
+- 标题：{c['title']}
+- 作者：{c['authors']}
+- 原文：{c['paper_url']}
+- 官方页面：{c['official_url']}
+
+### 为什么收录
+{c['why_include']}
+
+### 证据（录用 / 获奖核实）
+{c['evidence']}
+
+### 任务
+为这篇论文撰写中文精读并收录到仓库，要求见 `.github/claude/review-goals.md` 的“G7 持续收录”一节。
+
+### 验收标准
+{criteria}
+
+---
+_由 Claude 收集流程生成（[运行记录]({run_url()})）。A 层候选会自动排队撰写，一次只写一篇；B 层候选需要你判断：同意收录就加上 `claude-fix` 标签，不收录就选择 “Close as not planned” 关闭，之后不会再推荐它。_
+"""
+
+
+def cmd_create_paper_issues(_args) -> None:
+    result = load_result()
+    budget = int(env("BUDGET"))
+    auto_tiers = {t.strip() for t in env("AUTO_TIERS", "A").split(",")}
+    blocked = blocked_fingerprints(json.loads((CTX / "known-papers.json").read_text(encoding="utf-8")))
+
+    lines = [f"## 收集结果\n\n{result['summary']}\n", "| 会议 | 来源 | 状态 | 说明 |", "|---|---|---|---|"]
+    lines += [f"| {cell(s['venue'])} | {cell(s['source'])} | {s['status']} | {cell(s['note'])} |"
+              for s in result["searched"]]
+    lines.append("")
+    created = 0
+    for c in sorted(result["candidates"], key=lambda c: c["tier"]):
+        fingerprint = normalize_fingerprint(c["fingerprint"])
+        if created >= budget:
+            lines.append(f"- 超出本次额度，未创建：{c['title']}")
+            continue
+        if fingerprint in blocked:
+            lines.append(f"- 已有 issue 或已被否决，跳过：{c['title']}（`{fingerprint}`）")
+            continue
+        blocked.add(fingerprint)
+        url = gh("issue", "create", "--title", f"[新论文] {c['venue']} {c['year']}：{c['title']}",
+                 "--body-file", "-", "--label", f"claude-collect,tier:{c['tier']}",
+                 stdin=render_paper_issue(c, fingerprint))
+        number = int(url.rstrip("/").rsplit("/", 1)[1])
+        created += 1
+        queued = c["tier"] in auto_tiers
+        if queued:
+            # 只打标签进入队列；由 dispatch_next_paper 按顺序一次分派一篇
+            add_labels("issue", number, "claude-fix")
+        lines.append(f"- 已创建 #{number}（{c['tier']} 层）{'，已排队撰写' if queued else '，等待人工判断'}：{c['title']}")
+    step_summary("\n".join(lines))
+
+
+def paper_in_flight(exclude_issue=None) -> int | None:
+    """正在撰写或验证中的论文 PR（已转人工的不算），用于保证一次只写一篇。"""
+    prs = gh_json("pr", "list", "--label", "claude-collect", "--state", "open",
+                  "--json", "number,labels,headRefName") or []
+    for p in prs:
+        if not has_label(p, "needs-human") and p["headRefName"] != branch_for(exclude_issue):
+            return p["number"]
+    return None
+
+
+def dispatch_next_paper() -> str:
+    """论文精读串行撰写：新文章取“最大编号 + 1”，并行撰写会导致编号冲突。"""
+    busy = paper_in_flight()
+    if busy:
+        return f"论文 PR #{busy} 正在撰写或验证中，其余候选继续排队"
+    queued = gh_json("issue", "list", "--label", "claude-collect", "--label", "claude-fix", "--state", "open",
+                     "--limit", "100", "--json", "number,labels") or []
+    for issue in sorted(queued, key=lambda i: i["number"]):
+        branch = branch_for(issue["number"])
+        if has_label(issue, "needs-human") or open_pr_for(branch):
+            continue
+        # PR 被人工关闭但 issue 还开着：说明人有异议，不要自动重写
+        if gh_json("pr", "list", "--head", branch, "--state", "closed", "--json", "number"):
+            continue
+        dispatch(FIX_WORKFLOW, issue=issue["number"], round=1)
+        return f"已分派 #{issue['number']} 撰写精读"
+    return "没有排队中的候选论文"
+
+
+def cmd_dispatch_next_paper(_args) -> None:
+    step_summary(dispatch_next_paper())
+
+
 # ---------- ② 修复 ----------
 
 def cmd_fix_context(_args) -> None:
     ensure_labels()
     number, rnd = int(env("ISSUE")), int(env("ROUND", "1"))
-    issue = gh_json("issue", "view", str(number), "--json", "number,title,body,state")
+    issue = gh_json("issue", "view", str(number), "--json", "number,title,body,state,labels")
     branch = branch_for(number)
     pr = open_pr_for(branch)
 
@@ -334,6 +469,9 @@ def cmd_fix_context(_args) -> None:
         skip = f"issue #{number} 已有进行中的 PR #{pr}，跳过重复触发"
     elif rnd > 1 and not pr:
         skip = f"第 {rnd} 轮修复找不到 issue #{number} 对应的 PR"
+    elif rnd == 1 and has_label(issue, "claude-collect") and (busy := paper_in_flight(exclude_issue=number)):
+        skip = f"论文 PR #{busy} 还在进行中，#{number} 已排队，前一篇完成后会自动开始"
+        comment("issue", number, f"⏳ {skip}。")
     if skip:
         print(f"::notice::{skip}")
         step_summary(skip)
@@ -378,6 +516,8 @@ def cmd_open_pr(_args) -> None:
     number, rnd = int(env("ISSUE")), int(env("ROUND", "1"))
     branch, pr = env("BRANCH"), os.environ.get("PR") or None
     result = load_result()
+    issue = gh_json("issue", "view", str(number), "--json", "title,labels")
+    title, is_paper = issue["title"], has_label(issue, "claude-collect")
 
     files = staged_files()
     outside = [f for f in files if not FIX_ALLOWED.match(f)]
@@ -389,9 +529,10 @@ def cmd_open_pr(_args) -> None:
         else:
             reason = "Claude 没有做出任何修改"
         escalate(number, pr, reason)
+        if is_paper:
+            step_summary(dispatch_next_paper())  # 这一篇转人工，队列继续
         return
 
-    title = gh_json("issue", "view", str(number), "--json", "title")["title"]
     git(*BOT_GIT, "commit", "-m", f"修复 #{number}（第 {rnd} 轮）：{title}\n\n由 Claude 自动改进闭环生成：{run_url()}")
     # 首轮总是从主干新建分支，覆盖之前已关闭 PR 留下的同名分支
     git("push", *(["--force"] if rnd == 1 else []), "origin", f"HEAD:refs/heads/{branch}")
@@ -401,8 +542,9 @@ def cmd_open_pr(_args) -> None:
         body = (f"Closes #{number}\n\n{marker('pr', issue=number)}\n{report}\n---\n"
                 "_本 PR 由 Claude 自动改进闭环生成。独立验证的结果会以评论形式出现在下方；"
                 "验证通过后会加上 `claude-verified` 标签，等待人工审阅合并。_\n")
+        labels = "claude-autofix,claude-collect" if is_paper else "claude-autofix"
         url = gh("pr", "create", "--base", default_branch(), "--head", branch,
-                 "--title", f"[Claude] {title}", "--body-file", "-", "--label", "claude-autofix", stdin=body)
+                 "--title", f"[Claude] {title}", "--body-file", "-", "--label", labels, stdin=body)
         pr = int(url.rstrip("/").rsplit("/", 1)[1])
         comment("issue", number, f"已创建修复 PR #{pr}，正在进行独立验证。")
     else:
@@ -484,10 +626,12 @@ def cmd_verify_route(_args) -> None:
         if verdict == "pass":
             verdict = "fail"
 
-    severity = next((l["name"].split(":", 1)[1] for l in
-                     gh_json("issue", "view", str(issue), "--json", "labels")["labels"]
-                     if l["name"].startswith("severity:")), "")
-    auto_merge = verdict == "pass" and severity in merge_severities
+    issue_labels = gh_json("issue", "view", str(issue), "--json", "labels")
+    is_paper = has_label(issue_labels, "claude-collect")
+    # 审查类 issue 按严重程度（low / medium / high）匹配，论文类按层级（tier:A / tier:B）匹配
+    keys = {l["name"].removeprefix("severity:") for l in issue_labels["labels"]
+            if l["name"].startswith(("severity:", "tier:"))}
+    auto_merge = verdict == "pass" and bool(keys & merge_severities)
     if verdict == "pass":
         next_step = "按配置自动合并。" if auto_merge else "等待人工审阅合并。"
     elif verdict == "fail" and rnd < max_rounds:
@@ -505,11 +649,15 @@ def cmd_verify_route(_args) -> None:
         comment("issue", issue, f"修复 PR #{pr} 已通过 Claude 验证（第 {rnd} 轮），{next_step}")
         if auto_merge:
             gh("pr", "merge", str(pr), "--squash", "--delete-branch")
+            if is_paper:
+                step_summary(dispatch_next_paper())  # 上一篇已合并，开始写下一篇
     elif verdict == "fail" and rnd < max_rounds:
         dispatch(FIX_WORKFLOW, issue=issue, round=rnd + 1)
     else:
         add_labels("pr", pr, "needs-human")
         add_labels("issue", issue, "needs-human")
+        if is_paper:
+            step_summary(dispatch_next_paper())  # 这一篇转人工，队列继续
     step_summary(f"PR #{pr} 第 {rnd} 轮验证：{VERDICT_ZH[verdict]}；{next_step}")
 
 
@@ -518,10 +666,6 @@ def cmd_verify_route(_args) -> None:
 def verdicts(item: dict) -> list[str]:
     return [m["verdict"] for c in item["comments"]
             if is_bot(c) and (m := parse_marker(c["body"], "verify")) and "verdict" in m]
-
-
-def has_label(item: dict, name: str) -> bool:
-    return any(l["name"] == name for l in item["labels"])
 
 
 def clip(text: str, limit: int = 1500) -> str:
@@ -533,9 +677,13 @@ def cmd_retro_context(_args) -> None:
     ensure_labels()
     days = int(env("RETRO_DAYS", "30"))
     since = (dt.date.today() - dt.timedelta(days=days)).isoformat()
-    issues = gh_json("issue", "list", "--label", "claude-audit", "--state", "all", "--limit", "200",
-                     "--search", f"updated:>={since}",
-                     "--json", "number,title,state,stateReason,labels,body,comments") or []
+    issues = []
+    for label in ("claude-audit", "claude-collect"):
+        issues += gh_json("issue", "list", "--label", label, "--state", "all", "--limit", "200",
+                          "--search", f"updated:>={since}",
+                          "--json", "number,title,state,stateReason,labels,body,comments") or []
+    papers = [i for i in issues if has_label(i, "claude-collect")]
+    audits = [i for i in issues if not has_label(i, "claude-collect")]
     prs = gh_json("pr", "list", "--label", "claude-autofix", "--state", "all", "--limit", "200",
                   "--search", f"updated:>={since}", "--json", "number,title,state,labels,comments") or []
     if not issues and not prs:
@@ -546,12 +694,12 @@ def cmd_retro_context(_args) -> None:
     rounds = [len(verdicts(p)) for p in prs if verdicts(p)]
     stats = {
         "period": f"最近 {days} 天（{since} 起）",
-        "issues": {
-            "total": len(issues),
-            "open": sum(i["state"] == "OPEN" for i in issues),
-            "fixed": sum(i.get("stateReason") == "COMPLETED" for i in issues),
-            "false_positive_not_planned": sum(i.get("stateReason") == "NOT_PLANNED" for i in issues),
-            "needs_human": sum(has_label(i, "needs-human") for i in issues),
+        "audit_issues": {
+            "total": len(audits),
+            "open": sum(i["state"] == "OPEN" for i in audits),
+            "fixed": sum(i.get("stateReason") == "COMPLETED" for i in audits),
+            "false_positive_not_planned": sum(i.get("stateReason") == "NOT_PLANNED" for i in audits),
+            "needs_human": sum(has_label(i, "needs-human") for i in audits),
         },
         "prs": {
             "total": len(prs),
@@ -561,6 +709,13 @@ def cmd_retro_context(_args) -> None:
             "needs_human": sum(has_label(p, "needs-human") for p in prs),
             "avg_verify_rounds": round(sum(rounds) / len(rounds), 2) if rounds else 0,
         },
+        "papers": {
+            "candidates": len(papers),
+            "written": sum(i.get("stateReason") == "COMPLETED" for i in papers),
+            "rejected_not_planned": sum(i.get("stateReason") == "NOT_PLANNED" for i in papers),
+            "queued": sum(i["state"] == "OPEN" and has_label(i, "claude-fix") for i in papers),
+            "awaiting_decision": sum(i["state"] == "OPEN" and not has_label(i, "claude-fix") for i in papers),
+        },
     }
     write_ctx("retro-stats.json", json.dumps(stats, ensure_ascii=False, indent=2))
 
@@ -568,7 +723,8 @@ def cmd_retro_context(_args) -> None:
     for i in issues:
         if i.get("stateReason") == "NOT_PLANNED":
             human = [c for c in i["comments"] if not is_bot(c)][-3:]  # 人工关闭时写的理由
-            cases.append(f"## 误报：#{i['number']} {i['title']}\n\n{clip(i['body'])}\n\n"
+            kind = "被否决的候选论文" if has_label(i, "claude-collect") else "误报"
+            cases.append(f"## {kind}：#{i['number']} {i['title']}\n\n{clip(i['body'])}\n\n"
                          + "\n".join(f"> 评论：{clip(c['body'], 500)}" for c in human))
     for p in prs:
         if has_label(p, "needs-human") or len(verdicts(p)) >= 2:
@@ -636,6 +792,8 @@ def main() -> None:
         "fix-context": cmd_fix_context, "open-pr": cmd_open_pr,
         "verify-context": cmd_verify_context, "verify-route": cmd_verify_route,
         "retro-context": cmd_retro_context, "open-retro-pr": cmd_open_retro_pr,
+        "collect-context": cmd_collect_context, "create-paper-issues": cmd_create_paper_issues,
+        "dispatch-next-paper": cmd_dispatch_next_paper,
     }.items():
         sub.add_parser(name).set_defaults(func=func)
     esc = sub.add_parser("escalate")

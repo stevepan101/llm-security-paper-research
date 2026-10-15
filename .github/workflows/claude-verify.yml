@@ -61,7 +61,7 @@ jobs:
 
             判断方法：
             1. 逐条核对验收标准，给出 met、partial 或 unmet，并附上证据（文件和行号、原文 URL 和原文表述）。涉及事实的修改，用 WebFetch 核对原文。
-            2. 检查改动是否引入了新问题，例如事实错误、链接失效、结构破坏或无关改动，列入 regressions。
+            2. 检查改动是否引入了新问题，例如事实错误、链接失效、结构破坏或无关改动，列入 regressions。如果是新增的论文精读，抽查关键数字、作者、会议和奖项是否与原文及官方页面一致。
             3. 给出判定：
                - 所有验收标准都是 met，且没有 regressions：pass
                - 否则：fail，并在 suggestions 中给出具体、可执行的修改建议，写明文件、位置和应该改成什么
@@ -71,7 +71,7 @@ jobs:
             最后按给定的 JSON schema 输出结果。
           claude_args: >-
             --model ${{ vars.CLAUDE_MODEL || 'opus' }}
-            --max-turns 40
+            --max-turns 60
             --allowedTools "Read,Glob,Grep,WebFetch,WebSearch"
             --disallowedTools "Bash,Edit,Write"
             --json-schema '${{ steps.ctx.outputs.schema }}'
