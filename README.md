@@ -1,6 +1,6 @@
 # LLM 安全顶尖研究精读：AI for Security & Security for AI
 
-本仓库收录 2024 年至 2026 年 10 月间**认可度最高**的 20 项 AI 安全研究，并对每一项做了中文精读分析。
+本仓库收录 2024 年至 2026 年 10 月间**认可度最高**的 22 项 AI 安全研究，并对每一项做了中文精读分析。
 
 **筛选标准**
 - 学术论文：顶会获奖（Best / Outstanding / Distinguished Paper），或被顶会（IEEE S&P、USENIX Security、CCS、NDSS、ICML、ICLR、NeurIPS）接收且被业界广泛采用的工作；
