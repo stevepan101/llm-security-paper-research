@@ -1,9 +1,9 @@
 # LLM 安全顶尖研究精读：AI for Security、Security for AI 与多模态安全
 
-本仓库收录 2024 年至 2026 年 10 月间**认可度最高**的 32 项 AI 安全研究，并对每一项做了中文精读分析。
+本仓库收录 2024 年至 2026 年 10 月间**认可度最高**的 40 项 AI 安全研究，并对每一项做了中文精读分析。
 
 **筛选标准**
-- 学术论文：顶会获奖（Best / Outstanding / Distinguished Paper），或被顶会（IEEE S&P、USENIX Security、CCS、NDSS、ICML、ICLR、NeurIPS）接收且被业界广泛采用的工作；多模态部分另收录 AAAI、ECCV 上认可度高（Oral 或被广泛引用和集成进工具）的代表作；
+- 学术论文：顶会获奖（Best / Outstanding / Distinguished Paper），或被顶会（IEEE S&P、USENIX Security、CCS、NDSS、ICML、ICLR、NeurIPS）接收且被业界广泛采用的工作；多模态部分另收录 CVPR、AAAI、ECCV 上认可度高（Oral 或被广泛引用和集成进工具）的代表作；
 - 工业界成果：头部机构（Google DeepMind / Project Zero、Anthropic、OpenAI、Microsoft、DARPA）公开发布、有可验证数据的研究。
 
 **每篇分析的结构**：基本信息 → 一句话总结 → 背景与问题 → 方法 → 关键结果（含数据） → 贡献与意义 → 局限 → 对研究者的启示。所有数据都来自原文或官方报告，每篇开头附有来源链接。
@@ -56,6 +56,14 @@
 | 30 | [Ring-A-Bell](multimodal-security/30-ring-a-bell-iclr24.md) | ICLR 2024 | 离线提取概念向量，绕过扩散模型的各种概念移除方法 |
 | 31 | [UnlearnDiffAtk](multimodal-security/31-unlearndiffatk-eccv24.md) | ECCV 2024（MSU） | 用被遗忘模型自身做分类器，轻松找回被“遗忘”的裸露、画风和物体 |
 | 32 | [SafeGen](multimodal-security/32-safegen-ccs24.md) | **ACM CCS 2024**（浙江大学） | 在视觉自注意力层移除色情生成能力，对文本侧越狱提示鲁棒 |
+| 33 | [UltraBreak](multimodal-security/33-ultrabreak-iclr26.md) | ICLR 2026（墨尔本大学等） | 视觉约束加语义损失，让通用对抗图像在开源 VLM 间迁移；对 GPT-5 等前沿模型仍基本无效 |
+| 34 | [Jailbreaking VLMs Through the Visual Modality](multimodal-security/34-visual-modality-jailbreak-icml26.md) | ICML 2026 | 在 GPT-5.2、Gemini 3、Claude Haiku 4.5 上量化跨模态对齐缺口：图形密码 40.9% 对文字密码 10.7% |
+| 35 | [JOOD](multimodal-security/35-jood-playing-the-fool-cvpr25.md) | CVPR 2025（NAVER、KAIST） | 用 mixup 把有害图像变成分布外输入，GPT-4V 炸弹类 63%，对 o1 也有效 |
+| 36 | [AdvWave](multimodal-security/36-advwave-audio-jailbreak-iclr25.md) | ICLR 2025（UIUC） | 音频大模型的白盒越狱，扰动伪装成环境噪声，平均成功率 74.6% |
+| 37 | [Exposing the Guardrails](multimodal-security/37-exposing-dalle-guardrails-usenix25.md) | **USENIX Security 2025 Distinguished Artifact** | 用计时侧信道逆向 DALL·E 多级护栏，再用否定句和低资源语言越狱 |
+| 38 | [JailFuzzer](multimodal-security/38-jailfuzzer-sp25.md) | **IEEE S&P 2025** | 模糊测试加 LLM 智能体，生成通顺的越狱提示；DALL·E 3 绕过率 81.93% |
+| 39 | [SceneSplit](multimodal-security/39-scenesplit-t2v-jailbreak-iclr26.md) | ICLR 2026 | 把有害情节拆成无害场景越狱文生视频；Sora 2、Veo 2 等商用模型 68.6%–84.1% |
+| 40 | [Safety-Guided Flow](multimodal-security/40-safety-guided-flow-iclr26.md) | **ICLR 2026 Oral** | 统一负向引导防御并证明应在早期引导；Ring-A-Bell 攻击下裸露率降到 5.1% |
 
 ---
 
@@ -77,7 +85,7 @@
 每篇 LLM 安全论文都至少有一个方法学陷阱（[18](security-for-ai/18-chasing-shadows-llm-security-pitfalls.md)）；静态评估会严重高估防御效果（[14](security-for-ai/14-attacker-moves-second-usenix26.md)）。做研究时应报告确切的模型版本、检查数据泄露，并用自适应攻击评估。
 
 ### 6. 多模态让攻击面成倍扩大，文本对齐不会自动迁移
-图像和音频是连续、可求梯度、增强空间巨大的输入：白盒下一张图就能越狱（[23](multimodal-security/23-visual-adversarial-jailbreak-aaai24.md)），黑盒下把文字排版成图（[25](multimodal-security/25-figstep-aaai25.md)）或随机增强反复采样（[27](multimodal-security/27-best-of-n-jailbreaking-neurips25.md)）就能打到闭源模型；而梯度图像越狱难以迁移（[28](multimodal-security/28-failures-transferable-image-jailbreaks-iclr25.md)）。文生图领域同样如此：文本过滤器和概念移除都能被绕过（[29](multimodal-security/29-sneakyprompt-sp24.md)–[31](multimodal-security/31-unlearndiffatk-eccv24.md)），在视觉表示层面移除能力（[32](multimodal-security/32-safegen-ccs24.md)）是更有希望的方向，但仍缺少自适应攻击的检验。
+图像和音频是连续、可求梯度、增强空间巨大的输入：白盒下一张图就能越狱（[23](multimodal-security/23-visual-adversarial-jailbreak-aaai24.md)），黑盒下把文字排版成图（[25](multimodal-security/25-figstep-aaai25.md)）、混合成分布外输入（[35](multimodal-security/35-jood-playing-the-fool-cvpr25.md)）或随机增强反复采样（[27](multimodal-security/27-best-of-n-jailbreaking-neurips25.md)）就能打到闭源模型；梯度图像越狱难以迁移（[28](multimodal-security/28-failures-transferable-image-jailbreaks-iclr25.md)），2026 年的改进能在开源模型间迁移，但对前沿模型仍无效（[33](multimodal-security/33-ultrabreak-iclr26.md)）。在 2026 年的前沿模型上，跨模态对齐缺口依然存在但因厂商而异（[34](multimodal-security/34-visual-modality-jailbreak-icml26.md)）；音频（[36](multimodal-security/36-advwave-audio-jailbreak-iclr25.md)）和视频生成（[39](multimodal-security/39-scenesplit-t2v-jailbreak-iclr26.md)）是正在打开的新攻击面。文生图领域同样如此：文本过滤器和概念移除都能被绕过（[29](multimodal-security/29-sneakyprompt-sp24.md)–[31](multimodal-security/31-unlearndiffatk-eccv24.md)），商用多级护栏的弱点在于各级组件理解不一致（[37](multimodal-security/37-exposing-dalle-guardrails-usenix25.md)），通顺的自然语言越狱让困惑度过滤失效（[38](multimodal-security/38-jailfuzzer-sp25.md)）。防御侧，视觉层能力移除（[32](multimodal-security/32-safegen-ccs24.md)）和有理论保证的推理时引导（[40](multimodal-security/40-safety-guided-flow-iclr26.md)）是两条主要路线，但都缺少针对自身的自适应攻击检验。
 
 ---
 
@@ -85,7 +93,7 @@
 
 1. **入门**：[12](security-for-ai/12-shallow-safety-alignment-iclr25.md) → [15](security-for-ai/15-agentdojo-neurips24.md) → [14](security-for-ai/14-attacker-moves-second-usenix26.md) → [19](security-for-ai/19-camel-defeating-prompt-injections.md)（理解越狱和注入的根因、基准、攻击与防御）
 2. **AI 挖洞**：[03](ai-for-security/03-google-big-sleep.md) → [02](ai-for-security/02-darpa-aixcc-final.md) → [04](ai-for-security/04-claude-opus-4-6-500-zero-days.md) → [01](ai-for-security/01-project-glasswing-claude-mythos.md)（按时间顺序看能力演进）
-3. **多模态安全**：[23](multimodal-security/23-visual-adversarial-jailbreak-aaai24.md) → [25](multimodal-security/25-figstep-aaai25.md) → [28](multimodal-security/28-failures-transferable-image-jailbreaks-iclr25.md) → [27](multimodal-security/27-best-of-n-jailbreaking-neurips25.md)（VLM 越狱从白盒到黑盒）；[29](multimodal-security/29-sneakyprompt-sp24.md) → [30](multimodal-security/30-ring-a-bell-iclr24.md) → [32](multimodal-security/32-safegen-ccs24.md)（文生图越狱与防御）
+3. **多模态安全（最新进展）**：[34](multimodal-security/34-visual-modality-jailbreak-icml26.md) → [33](multimodal-security/33-ultrabreak-iclr26.md) → [27](multimodal-security/27-best-of-n-jailbreaking-neurips25.md)（2025–2026 年前沿 VLM 越狱）；[37](multimodal-security/37-exposing-dalle-guardrails-usenix25.md) → [38](multimodal-security/38-jailfuzzer-sp25.md) → [39](multimodal-security/39-scenesplit-t2v-jailbreak-iclr26.md) → [40](multimodal-security/40-safety-guided-flow-iclr26.md)（文生图 / 文生视频越狱与防御）；需要背景时再读 [23](multimodal-security/23-visual-adversarial-jailbreak-aaai24.md)、[25](multimodal-security/25-figstep-aaai25.md)、[29](multimodal-security/29-sneakyprompt-sp24.md)
 4. **做研究前必读**：[18](security-for-ai/18-chasing-shadows-llm-security-pitfalls.md)
 
 ## 说明
