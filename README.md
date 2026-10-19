@@ -30,7 +30,7 @@
 | # | 研究 | 机构 / 会议 | 核心看点 |
 |---|---|---|---|
 | 11 | [Stealing Part of a Production LM](security-for-ai/11-stealing-production-lm-icml24.md) | **ICML 2024 Best Paper** | 只用 API 就窃取了 OpenAI 模型的隐藏维度和最后一层；促使 OpenAI 和 Google 修改 API |
-| 12 | [Safety Alignment Should Be More Than a Few Tokens Deep](security-for-ai/12-shallow-safety-alignment-iclr25.md) | **ICLR 2025 Outstanding Paper** | “浅层对齐”一个概念统一解释了四类越狱和微调攻击 |
+| 12 | [Safety Alignment Should Be Made More Than Just a Few Tokens Deep](security-for-ai/12-shallow-safety-alignment-iclr25.md) | **ICLR 2025 Outstanding Paper** | “浅层对齐”一个概念统一解释了四类越狱和微调攻击 |
 | 13 | [Don't Listen To Me](security-for-ai/13-dont-listen-to-me-jailbreak-usenix24.md) | **USENIX Security 2024 Distinguished Paper** | 越狱提示分类体系加 92 人用户研究 |
 | 14 | [The Attacker Moves Second](security-for-ai/14-attacker-moves-second-usenix26.md) | USENIX Security 2026（三大实验室联合） | 自适应攻击打破 12 种已发表防御，大多 ASR > 90% |
 | 15 | [AgentDojo](security-for-ai/15-agentdojo-neurips24.md) | NeurIPS 2024 | 提示注入攻防的事实标准基准；能力越强的模型越容易被攻击 |
