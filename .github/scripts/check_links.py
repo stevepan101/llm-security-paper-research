@@ -13,7 +13,7 @@ from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[2]
 # README 必须索引这些目录下的每一篇文章
-CONTENT_DIRS = ["ai-for-security", "security-for-ai"]
+CONTENT_DIRS = ["ai-for-security", "security-for-ai", "multimodal-security"]
 SKIP_DIRS = {".git", ".claude-loop", "node_modules"}
 
 LINK_RE = re.compile(r"!?\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")

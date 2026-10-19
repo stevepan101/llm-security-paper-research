@@ -4,8 +4,8 @@
 
 ## 目录
 
-- `ai-for-security/`、`security-for-ai/`：每项研究一个文件，命名为 `NN-英文短名.md`，编号全仓库连续
-- `README.md`：总索引（两张表）、综合观察、建议阅读顺序和说明
+- `ai-for-security/`、`security-for-ai/`、`multimodal-security/`：每项研究一个文件，命名为 `NN-英文短名.md`，编号全仓库连续
+- `README.md`：总索引（三张表）、综合观察、建议阅读顺序和说明
 - `docs/`：仓库维护文档，例如自动改进闭环的设计
 - `.github/claude/review-goals.md`：自动审查的目标与评判标准
 
