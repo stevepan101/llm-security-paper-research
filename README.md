@@ -96,7 +96,7 @@
 3. **多模态安全（最新进展）**：[34](multimodal-security/34-visual-modality-jailbreak-icml26.md) → [33](multimodal-security/33-ultrabreak-iclr26.md) → [27](multimodal-security/27-best-of-n-jailbreaking-neurips25.md)（2025–2026 年前沿 VLM 越狱）；[37](multimodal-security/37-exposing-dalle-guardrails-usenix25.md) → [38](multimodal-security/38-jailfuzzer-sp25.md) → [39](multimodal-security/39-scenesplit-t2v-jailbreak-iclr26.md) → [40](multimodal-security/40-safety-guided-flow-iclr26.md)（文生图 / 文生视频越狱与防御）；需要背景时再读 [23](multimodal-security/23-visual-adversarial-jailbreak-aaai24.md)、[25](multimodal-security/25-figstep-aaai25.md)、[29](multimodal-security/29-sneakyprompt-sp24.md)
 4. **做研究前必读**：[18](security-for-ai/18-chasing-shadows-llm-security-pitfalls.md)
 
-## 五、专题分析
+## 六、专题分析
 
 | # | 专题 | 核心看点 |
 |---|---|---|
