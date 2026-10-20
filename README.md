@@ -1,6 +1,6 @@
 # LLM 安全顶尖研究精读：AI for Security、Security for AI 与多模态安全
 
-本仓库收录 2024 年至 2026 年 10 月间**认可度最高**的 41 项 AI 安全研究，并对每一项做了中文精读分析。
+本仓库收录 2024 年至 2026 年 10 月间**认可度最高**的 42 项 AI 安全研究，并对每一项做了中文精读分析。
 
 **筛选标准**
 - 学术论文：顶会获奖（Best / Outstanding / Distinguished Paper），或被顶会（IEEE S&P、USENIX Security、CCS、NDSS、ICML、ICLR、NeurIPS）接收且被业界广泛采用的工作；多模态部分另收录 CVPR、AAAI、ECCV 上认可度高（Oral 或被广泛引用和集成进工具）的代表作；
@@ -25,6 +25,7 @@
 | 09 | [ReSym](ai-for-security/09-resym-ccs24.md) | **CCS 2024 Distinguished Paper** | 用 LLM 加 Prolog 推理，从剥离的二进制中恢复变量和结构体 |
 | 10 | [Cybench](ai-for-security/10-cybench-iclr25.md) | **ICLR 2025 Oral** | 以人类最快解题时间为难度刻度的 CTF 基准 |
 | 41 | [LLMs in the SOC](ai-for-security/41-llms-in-the-soc-sp26.md) | **IEEE S&P 2026 Distinguished Paper** | 45 名分析师、3,090 条真实 GPT-4 查询：LLM 主要用来解释命令和润色文字，而不是下判断；决策权仍在人手里 |
+| 42 | [Decompiling the Synergy](ai-for-security/42-decompiling-the-synergy-ndss26.md) | **NDSS 2026 Best Paper** | 153 人调查加 48 人（24 新手、24 专家）逆向实验：LLM 缩小新手与专家的差距、加快已知算法函数的分诊，但会产生有害幻觉 |
 
 ## 二、Security for AI（AI 自身的安全）
 
