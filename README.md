@@ -96,6 +96,12 @@
 3. **多模态安全（最新进展）**：[34](multimodal-security/34-visual-modality-jailbreak-icml26.md) → [33](multimodal-security/33-ultrabreak-iclr26.md) → [27](multimodal-security/27-best-of-n-jailbreaking-neurips25.md)（2025–2026 年前沿 VLM 越狱）；[37](multimodal-security/37-exposing-dalle-guardrails-usenix25.md) → [38](multimodal-security/38-jailfuzzer-sp25.md) → [39](multimodal-security/39-scenesplit-t2v-jailbreak-iclr26.md) → [40](multimodal-security/40-safety-guided-flow-iclr26.md)（文生图 / 文生视频越狱与防御）；需要背景时再读 [23](multimodal-security/23-visual-adversarial-jailbreak-aaai24.md)、[25](multimodal-security/25-figstep-aaai25.md)、[29](multimodal-security/29-sneakyprompt-sp24.md)
 4. **做研究前必读**：[18](security-for-ai/18-chasing-shadows-llm-security-pitfalls.md)
 
+## 六、专题分析
+
+| # | 专题 | 核心看点 |
+|---|---|---|
+| P1 | [LLM 安全能否进入“工业化早期”？](perspectives/01-llm-security-industrialization.md) | 借用“逆向工程的工业革命”的框架评估越狱攻击、智能体攻击、护栏防御三个方向：智能体攻击测试已进入工业化早期；越狱攻击的生成已自动化，但判定是否有害的评判器还不可靠；防御中能工业化的是补丁流水线和系统级强制。文中列出需要推进的 8 项能力和若干选题 |
+
 ## 说明
 
 - IEEE S&P 2025/2026 的官方获奖页面在调研时无法访问，因此未纳入其获奖论文，留待后续补充。
