@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Claude 自动改进闭环（审查 / 收集 → issue → 修复 → 验证 → 复盘）的胶水脚本。
+"""Codex 自动改进闭环（审查 / 收集 → issue → 修复 → 验证 → 复盘）的胶水脚本。
 
-分工原则：Claude 只读写仓库文件，并按 JSON schema 返回结构化结果；
+分工原则：Codex 只读写仓库文件，并按 JSON schema 返回结构化结果；
 所有 GitHub 写操作都由这里的确定性代码完成，包括建 issue、提交、开 PR、打标签、
-触发下一阶段。这样每一步都可审计、可限流，Claude 也不需要 GitHub 写权限。
-各子命令由 .github/workflows/claude-*.yml 调用，设计说明见 docs/claude-auto-improve-loop.md。
+触发下一阶段。这样每一步都可审计、可限流，Codex 也不需要 GitHub 写权限。
+各子命令由 .github/workflows/claude-*.yml 调用，设计说明见 docs/codex-auto-improve-loop.md。
 """
 from __future__ import annotations
 
@@ -13,14 +13,15 @@ import datetime as dt
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from functools import cache
 from pathlib import Path
 
-CTX = Path(".claude-loop")  # 给 Claude 读的上下文文件，已加入 .gitignore，不会被提交
-SCHEMAS = Path(".github/claude/schemas")
-GOALS_FILE = ".github/claude/review-goals.md"
+CTX = Path(".claude-loop")  # 沿用旧分支中已被忽略的上下文目录
+CONFIG = Path(".github/claude")
+GOALS_FILE = (CONFIG / "review-goals.md").as_posix()
 FIX_WORKFLOW = "claude-fix.yml"
 VERIFY_WORKFLOW = "claude-verify.yml"
 BOT_LOGIN = "github-actions"  # 工作流用 GITHUB_TOKEN 发评论时的作者
@@ -28,13 +29,13 @@ BOT_GIT = ["-c", "user.name=github-actions[bot]",
            "-c", "user.email=41898282+github-actions[bot]@users.noreply.github.com"]
 
 LABELS = {
-    "claude-audit": ("5319e7", "Claude 审查发现的问题"),
-    "claude-fix": ("1d76db", "允许 Claude 自动修复"),
-    "claude-autofix": ("0e8a16", "Claude 自动修复的 PR"),
-    "claude-verified": ("2ea44f", "Claude 验证通过，等待人工合并"),
+    "claude-audit": ("5319e7", "Codex 审查发现的问题"),
+    "claude-fix": ("1d76db", "允许 Codex 自动修复"),
+    "claude-autofix": ("0e8a16", "Codex 自动修复的 PR"),
+    "claude-verified": ("2ea44f", "Codex 验证通过，等待人工合并"),
     "needs-human": ("d93f0b", "自动闭环无法解决，需要人工处理"),
     "claude-retro": ("c5def5", "审查标准复盘"),
-    "claude-collect": ("006b75", "Claude 收集的候选论文"),
+    "claude-collect": ("006b75", "Codex 收集的候选论文"),
     "tier:A": ("0052cc", "四大安全会议获奖论文"),
     "tier:B": ("bfdadc", "四大安全会议录用、有影响力证据"),
     "severity:high": ("b60205", "严重：事实错误或误导读者"),
@@ -45,10 +46,12 @@ SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 SEVERITY_ZH = {"high": "高", "medium": "中", "low": "低"}
 STATUS_ICON = {"met": "✅ 满足", "partial": "🟡 部分满足", "unmet": "❌ 未满足"}
 VERDICT_ZH = {"pass": "✅ 通过", "fail": "❌ 未通过", "needs_human": "🙋 需要人工判断"}
-# 修复阶段只允许改 Markdown 内容文件。工作流（.github/）和 Claude 自身的配置（CLAUDE.md、.claude/）
-# 一律不许改，否则被注入的修复方可以借此影响验证方
-FIX_ALLOWED = re.compile(r"^(?!\.github/|\.claude/)(?!(?:.*/)?CLAUDE\.md$).+\.md$")
-TRUSTED_CONFIG = [".github", ".claude", "CLAUDE.md"]
+# 修复阶段只允许改 Markdown 内容文件。验证阶段从主干恢复工作流、规则和工具配置。
+TRUSTED_CONFIG = {
+    ".github", ".agents", ".codex", ".claude", ".claude-loop", ".gitattributes", ".gitignore",
+    "AGENTS.md", "AGENTS.override.md", "CLAUDE.md",
+}
+GUIDE_NAMES = {"AGENTS.md", "AGENTS.override.md", "CLAUDE.md"}
 MARKER_RE = re.compile(r"<!-- claude-loop:(\w+)((?: [\w-]+=\S+)*) -->")
 
 
@@ -72,6 +75,9 @@ def gh_json(*args: str):
 
 
 def git(*args: str, **kw) -> str:
+    if args[0] in {"fetch", "push"}:
+        # Checkout does not store credentials. gh reads GH_TOKEN only in the script step.
+        return run("git", "-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential", *args, **kw)
     return run("git", *args, **kw)
 
 
@@ -113,17 +119,22 @@ def default_branch() -> str:
     return gh("repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name")
 
 
-def schema(name: str) -> str:
-    """压成一行，供 claude_args 的 --json-schema '…' 使用。"""
-    data = json.loads((SCHEMAS / f"{name}.json").read_text(encoding="utf-8"))
-    return json.dumps(data, separators=(",", ":"))
+def prepare_codex(phase: str) -> None:
+    home = Path(env("RUNNER_TEMP")) / "codex-home"
+    home.mkdir(exist_ok=True)
+    shutil.copyfile(CONFIG / "codex-config.toml", home / "config.toml")
+    shutil.copyfile(CONFIG / "proxy-models.json", home / "proxy-models.json")
+    shutil.copyfile(CONFIG / "schemas" / f"{phase}.json", home / "output-schema.json")
 
 
 def load_result() -> dict:
     raw = os.environ.get("RESULT", "").strip()
     if not raw:
-        raise SystemExit("Claude 没有返回结构化结果（可能超出了 max-turns），请查看本次运行日志")
-    return json.loads(raw)
+        raise SystemExit("Codex 没有返回结构化结果，请查看本次运行日志")
+    result = json.loads(raw)
+    if not isinstance(result, dict):
+        raise SystemExit("Codex 的结构化结果必须是 JSON 对象")
+    return result
 
 
 def write_ctx(name: str, text: str) -> None:
@@ -220,9 +231,17 @@ def link_check() -> tuple[bool, str]:
 
 def staged_files() -> list[str]:
     git("add", "-A")
-    git("reset", "-q", "--", str(CTX), ".claude")  # 上下文文件和 Claude 配置永不提交
-    out = git("-c", "core.quotePath=false", "diff", "--cached", "--name-only")
-    return [line for line in out.splitlines() if line]
+    out = git("diff", "--cached", "--no-renames", "--name-only", "-z")
+    return out[:-1].split("\0") if out else []
+
+
+def allowed_content(path: str) -> bool:
+    file = Path(path)
+    return (
+        file.suffix == ".md" and file.name not in GUIDE_NAMES
+        and file.parts[0] not in TRUSTED_CONFIG
+        and not file.is_symlink()
+    )
 
 
 def escalate(issue, pr, reason: str) -> None:
@@ -239,7 +258,7 @@ def escalate(issue, pr, reason: str) -> None:
 # ---------- ① 审查 ----------
 
 def known_issues(label: str, kind: str) -> list[dict]:
-    """某类 issue 的精简列表，供 Claude 做语义去重、供脚本做指纹去重。"""
+    """某类 issue 的精简列表，供 Codex 做语义去重、供脚本做指纹去重。"""
     issues = gh_json("issue", "list", "--label", label, "--state", "all", "--limit", "500",
                      "--json", "number,title,state,stateReason,body") or []
     return [{
@@ -261,7 +280,7 @@ def issue_budget(known: list[dict], what: str) -> int:
 
 def blocked_fingerprints(known: list[dict]) -> set[str]:
     """与未关闭的 issue 重复，或被人工判定为误报 / 否决（not planned）的，都不再报告。
-    已完成（completed）的允许重新报告：审查视为回归，收集则由 Claude 依据已收录列表排除。"""
+    已完成（completed）的允许重新报告：审查视为回归，收集则由 Codex 依据已收录列表排除。"""
     return {k["fingerprint"] for k in known if k["fingerprint"]
             and (k["state"] == "OPEN" or k["stateReason"] == "NOT_PLANNED")}
 
@@ -272,7 +291,10 @@ def cmd_audit_context(_args) -> None:
     write_ctx("known-issues.json", json.dumps(known, ensure_ascii=False, indent=2))
     _, report = link_check()
     write_ctx("link-check.txt", report)
-    set_output(budget=issue_budget(known, "审查"), schema=schema("audit"))
+    budget = issue_budget(known, "审查")
+    if budget:
+        prepare_codex("audit")
+    set_output(budget=budget)
 
 
 def normalize_fingerprint(fp: str) -> str:
@@ -301,7 +323,7 @@ def render_issue(f: dict, fingerprint: str) -> str:
 {criteria}
 
 ---
-_由 Claude 自动审查生成（[运行记录]({run_url()})）。如果是误报，请选择 “Close as not planned” 关闭，之后的审查会避开同类问题；如果同意自动修复，给本 issue 加上 `claude-fix` 标签。_
+_由 Codex 自动审查生成（[运行记录]({run_url()})）。如果是误报，请选择 “Close as not planned” 关闭，之后的审查会避开同类问题；如果同意自动修复，给本 issue 加上 `claude-fix` 标签。_
 """
 
 
@@ -353,8 +375,10 @@ def cmd_collect_context(_args) -> None:
     rows = [line for line in Path("README.md").read_text(encoding="utf-8").splitlines()
             if re.match(r"^\|\s*\d+\s*\|", line)]
     write_ctx("existing-papers.md", "# 仓库已收录的研究（README 索引表）\n\n" + "\n".join(rows) + "\n")
-    set_output(budget=issue_budget(known, "候选论文"), schema=schema("collect"),
-               today=dt.date.today().isoformat())
+    budget = issue_budget(known, "候选论文")
+    if budget:
+        prepare_codex("collect")
+    set_output(budget=budget, today=dt.date.today().isoformat())
 
 
 def render_paper_issue(c: dict, fingerprint: str) -> str:
@@ -383,7 +407,7 @@ def render_paper_issue(c: dict, fingerprint: str) -> str:
 {criteria}
 
 ---
-_由 Claude 收集流程生成（[运行记录]({run_url()})）。A 层候选会自动排队撰写，一次只写一篇；B 层候选需要你判断：同意收录就加上 `claude-fix` 标签，不收录就选择 “Close as not planned” 关闭，之后不会再推荐它。_
+_由 Codex 收集流程生成（[运行记录]({run_url()})）。A 层候选会自动排队撰写，一次只写一篇；B 层候选需要你判断：同意收录就加上 `claude-fix` 标签，不收录就选择 “Close as not planned” 关闭，之后不会再推荐它。_
 """
 
 
@@ -478,6 +502,9 @@ def cmd_fix_context(_args) -> None:
         set_output(skip="true")
         return
 
+    # Older PR branches can predate the Codex migration. Keep the current schema and guide.
+    prepare_codex("fix")
+    guide = Path("AGENTS.md").read_text(encoding="utf-8")
     base = default_branch()
     git("fetch", "origin", base)
     if rnd == 1:
@@ -487,15 +514,16 @@ def cmd_fix_context(_args) -> None:
         git("checkout", "-B", branch, "FETCH_HEAD")
         write_ctx("feedback.md", latest_bot_comment("pr", pr, "verify") or "（没有找到上一轮的验证意见）")
         write_ctx("current.diff", git("diff", f"origin/{base}...HEAD"))
+    write_ctx("repo-guide.md", guide)
     write_ctx("issue.md", issue_markdown(issue))
-    set_output(skip="false", branch=branch, pr=pr or "", schema=schema("fix"))
+    set_output(skip="false", branch=branch, pr=pr or "")
 
 
 def render_fix_report(r: dict, rnd: int) -> str:
     changes = "\n".join(f"- `{c['file']}`：{c['description']}" for c in r["changes"]) or "- 无"
     rows = "\n".join(f"| {cell(c['criterion'])} | {'✅' if c['addressed'] else '⚠️'} | {cell(c['note'])} |"
                      for c in r["criteria"])
-    text = f"""## Claude 修复说明（第 {rnd} 轮）
+    text = f"""## Codex 修复说明（第 {rnd} 轮）
 
 {r['summary']}
 
@@ -520,31 +548,31 @@ def cmd_open_pr(_args) -> None:
     title, is_paper = issue["title"], has_label(issue, "claude-collect")
 
     files = staged_files()
-    outside = [f for f in files if not FIX_ALLOWED.match(f)]
+    outside = [f for f in files if not allowed_content(f)]
     if result["cannot_fix"] or not files or outside:
         if result["cannot_fix"]:
-            reason = f"Claude 认为无法自动修复：{result['cannot_fix_reason']}"
+            reason = f"Codex 认为无法自动修复：{result['cannot_fix_reason']}"
         elif outside:
             reason = "修复改动了允许范围以外的文件：" + "、".join(f"`{f}`" for f in outside)
         else:
-            reason = "Claude 没有做出任何修改"
+            reason = "Codex 没有做出任何修改"
         escalate(number, pr, reason)
         if is_paper:
             step_summary(dispatch_next_paper())  # 这一篇转人工，队列继续
         return
 
-    git(*BOT_GIT, "commit", "-m", f"修复 #{number}（第 {rnd} 轮）：{title}\n\n由 Claude 自动改进闭环生成：{run_url()}")
+    git(*BOT_GIT, "commit", "-m", f"修复 #{number}（第 {rnd} 轮）：{title}\n\n由 Codex 自动改进闭环生成：{run_url()}")
     # 首轮总是从主干新建分支，覆盖之前已关闭 PR 留下的同名分支
     git("push", *(["--force"] if rnd == 1 else []), "origin", f"HEAD:refs/heads/{branch}")
 
     report = render_fix_report(result, rnd)
     if pr is None:
         body = (f"Closes #{number}\n\n{marker('pr', issue=number)}\n{report}\n---\n"
-                "_本 PR 由 Claude 自动改进闭环生成。独立验证的结果会以评论形式出现在下方；"
+                "_本 PR 由 Codex 自动改进闭环生成。独立验证的结果会以评论形式出现在下方；"
                 "验证通过后会加上 `claude-verified` 标签，等待人工审阅合并。_\n")
         labels = "claude-autofix,claude-collect" if is_paper else "claude-autofix"
         url = gh("pr", "create", "--base", default_branch(), "--head", branch,
-                 "--title", f"[Claude] {title}", "--body-file", "-", "--label", labels, stdin=body)
+                 "--title", f"[Codex] {title}", "--body-file", "-", "--label", labels, stdin=body)
         pr = int(url.rstrip("/").rsplit("/", 1)[1])
         comment("issue", number, f"已创建修复 PR #{pr}，正在进行独立验证。")
     else:
@@ -570,22 +598,27 @@ def cmd_verify_context(_args) -> None:
         set_output(skip="true")
         return
 
-    base, head = default_branch(), pr["headRefName"]
+    base = default_branch()
+    prepare_codex("verify")
     git("fetch", "origin", base)
-    git("fetch", "origin", head)
-    git("checkout", "-B", head, "FETCH_HEAD")
-    for path in TRUSTED_CONFIG:  # 验证方使用主干上的约定和标准，不用 PR 里的版本
-        git("checkout", f"origin/{base}", "--", path, check=False)
+    git("fetch", "origin", f"refs/pull/{pr_number}/head")
+    git("checkout", "--detach", "FETCH_HEAD")
+    base_ref = f"origin/{base}"
+    base_paths = set(git("ls-tree", "--name-only", base_ref).splitlines())
+    pr_paths = set(git("ls-tree", "--name-only", "HEAD").splitlines())
+    paths = sorted(TRUSTED_CONFIG & (base_paths | pr_paths))
+    if paths:
+        git("restore", "--source", base_ref, "--staged", "--worktree", "--", *paths)
 
     issue = gh_json("issue", "view", str(issue_no), "--json", "number,title,body")
     write_ctx("issue.md", issue_markdown(issue))
-    write_ctx("pr.diff", git("diff", f"origin/{base}...HEAD"))
+    write_ctx("pr.diff", git("diff", f"{base_ref}...HEAD"))
     previous = latest_bot_comment("pr", pr_number, "verify")
     if previous:
         write_ctx("prev-feedback.md", previous)
     links_ok, report = link_check()
     write_ctx("link-check.txt", report)
-    set_output(skip="false", issue=issue_no, links_ok=str(links_ok).lower(), schema=schema("verify"))
+    set_output(skip="false", issue=issue_no, links_ok=str(links_ok).lower())
 
 
 def render_verify(r: dict, verdict: str, regressions: list[str], rnd: int, next_step: str) -> str:
@@ -593,7 +626,7 @@ def render_verify(r: dict, verdict: str, regressions: list[str], rnd: int, next_
                      for c in r["criteria"])
     suggestions = "\n".join(f"{i}. {s}" for i, s in enumerate(r["suggestions"], 1)) or "无"
     return f"""{marker('verify', round=rnd, verdict=verdict)}
-## Claude 验证结果（第 {rnd} 轮）：{VERDICT_ZH[verdict]}
+## Codex 验证结果（第 {rnd} 轮）：{VERDICT_ZH[verdict]}
 
 {r['summary']}
 
@@ -609,7 +642,7 @@ def render_verify(r: dict, verdict: str, regressions: list[str], rnd: int, next_
 
 **下一步**：{next_step}
 
-<sub>验证由独立的 Claude 会话完成，不参考修复方的自述（[运行记录]({run_url()})）。</sub>
+<sub>验证由独立的 Codex 会话完成，不参考修复方的自述（[运行记录]({run_url()})）。</sub>
 """
 
 
@@ -646,7 +679,7 @@ def cmd_verify_route(_args) -> None:
     if verdict == "pass":
         add_labels("pr", pr, "claude-verified")
         remove_labels("pr", pr, "needs-human")
-        comment("issue", issue, f"修复 PR #{pr} 已通过 Claude 验证（第 {rnd} 轮），{next_step}")
+        comment("issue", issue, f"修复 PR #{pr} 已通过 Codex 验证（第 {rnd} 轮），{next_step}")
         if auto_merge:
             gh("pr", "merge", str(pr), "--squash", "--delete-branch")
             if is_paper:
@@ -732,7 +765,8 @@ def cmd_retro_context(_args) -> None:
             cases.append(f"## 多轮或转人工：PR #{p['number']} {p['title']}\n\n"
                          + "\n\n".join(clip(h, 1200) for h in history))
     write_ctx("retro-cases.md", "\n\n".join(cases))
-    set_output(skip="false", schema=schema("retro"))
+    prepare_codex("retro")
+    set_output(skip="false")
 
 
 def cmd_open_retro_pr(_args) -> None:
@@ -741,7 +775,7 @@ def cmd_open_retro_pr(_args) -> None:
     if not files:
         step_summary(f"本期复盘结论：无需修改审查标准。\n\n{result['summary']}")
         return
-    if files != [GOALS_FILE]:
+    if files != [GOALS_FILE] or not Path(GOALS_FILE).is_file() or Path(GOALS_FILE).is_symlink():
         raise SystemExit(f"复盘只允许修改 {GOALS_FILE}，实际改动：{files}")
 
     stats = json.loads((CTX / "retro-stats.json").read_text(encoding="utf-8"))
@@ -765,13 +799,13 @@ def cmd_open_retro_pr(_args) -> None:
 ```
 
 ---
-_由 Claude 每月复盘生成，请人工审阅后合并。合并后，下一次审查就会使用新的标准。_
+_由 Codex 每月复盘生成，请人工审阅后合并。合并后，下一次审查就会使用新的标准。_
 """
     existing = open_pr_for(branch)
     if existing:
         comment("pr", existing, body)
     else:
-        gh("pr", "create", "--base", default_branch(), "--head", branch, "--title", "[Claude] 复盘：更新审查标准",
+        gh("pr", "create", "--base", default_branch(), "--head", branch, "--title", "[Codex] 复盘：更新审查标准",
            "--body-file", "-", "--label", "claude-retro", stdin=body)
     step_summary(body)
 

@@ -1,0 +1,35 @@
+# Web search runs through the model API. Local commands keep network access disabled.
+web_search = "live"
+# Use standard Responses tool declarations for the gateway's default model.
+model_catalog_json = "proxy-models.json"
+
+[shell_environment_policy]
+inherit = "core"
+ignore_default_excludes = false
+
+[permissions.content-edit]
+extends = ":read-only"
+
+[permissions.content-edit.filesystem.":workspace_roots"]
+"." = "write"
+".git" = "read"
+".github" = "read"
+".agents" = "read"
+".codex" = "read"
+".claude" = "read"
+".claude-loop" = "read"
+".gitattributes" = "read"
+".gitignore" = "read"
+"AGENTS.md" = "read"
+"AGENTS.override.md" = "read"
+"CLAUDE.md" = "read"
+
+[permissions.review-goals-edit]
+extends = ":read-only"
+
+[permissions.review-goals-edit.filesystem.":workspace_roots"]
+".github/claude/review-goals.md" = "write"
+
+# codex-action supplies the provider's loopback URL and forwards this header upstream.
+[model_providers.codex-action-responses-proxy.http_headers]
+"x-openai-actor-authorization" = "local-image-extension"
