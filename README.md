@@ -1,6 +1,6 @@
 # LLM 安全顶尖研究精读：AI for Security、Security for AI 与多模态安全
 
-本仓库收录 2024 年至 2026 年 10 月间**认可度最高**的 42 项 AI 安全研究，并对每一项做了中文精读分析。
+本仓库收录 2024 年至 2026 年 10 月间**认可度最高**的 43 项 AI 安全研究，并对每一项做了中文精读分析。
 
 **筛选标准**
 - 学术论文：顶会获奖（Best / Outstanding / Distinguished Paper），或被顶会（IEEE S&P、USENIX Security、CCS、NDSS、ICML、ICLR、NeurIPS）接收且被业界广泛采用的工作；多模态部分另收录 CVPR、AAAI、ECCV 上认可度高（Oral 或被广泛引用和集成进工具）的代表作；
@@ -43,6 +43,7 @@
 | 20 | [Constitutional Classifiers](security-for-ai/20-constitutional-classifiers.md) | Anthropic，2025-02 / 2026-01 | 经过数千小时红队检验的通用越狱防御；新一代开销约 1% |
 | 21 | [ADAS：智能体系统自动设计](security-for-ai/21-adas-automated-design-of-agentic-systems.md) | ICLR 2025 | 元智能体用代码自动设计智能体；是 AgenticRed 的方法基础 |
 | 22 | [AgenticRed](security-for-ai/22-agenticred-evolving-red-teaming-systems.md) | arXiv 预印本，2026-01 | 用 GPT-5 演化整套越狱攻击系统；HarmBench ASR 96–100%，迁移到 GPT-5.1 达 100% |
+| 43 | [DataSentinel](security-for-ai/43-datasentinel-prompt-injection-detection-sp25.md) | **IEEE S&P 2025 Distinguished Paper** | 把提示注入检测建模为检测器与自适应攻击者的 minimax 博弈，微调 Mistral-7B；多数设置 FPR/FNR 接近 0，但情感分析目标任务上自适应攻击 FNR 达 0.87 |
 
 ## 三、多模态与生成模型安全
 
@@ -106,6 +107,6 @@
 
 ## 说明
 
-- IEEE S&P 2025/2026 的官方获奖页面在最初调研时无法访问，目前仅补充了 S&P 2026 的 [41 LLMs in the SOC](ai-for-security/41-llms-in-the-soc-sp26.md)，其余获奖论文留待后续补充。
+- IEEE S&P 2025/2026 的官方获奖页面在最初调研时无法访问，目前仅补充了 S&P 2026 的 [41 LLMs in the SOC](ai-for-security/41-llms-in-the-soc-sp26.md) 和 S&P 2025 的 [43 DataSentinel](security-for-ai/43-datasentinel-prompt-injection-detection-sp25.md)，其余获奖论文留待后续补充。
 - 工业界报告大多由发布方单方面提供，外部无法完全复现，分析中已标明相关局限。
 - 少数论文只能读到摘要和部分正文，对应分析中没有引用读不到的具体数值。
